@@ -114,25 +114,37 @@ def planet_altitude(planet, dt):
     alt, az, dist = apparent.altaz()
     return alt.degrees
 
-def find_sunset_sunrise(date_dt):
-    t0 = ts.from_datetime(datetime(date_dt.year, date_dt.month, date_dt.day, 0, 0, tzinfo=TZ))
-    t1 = ts.from_datetime(datetime(date_dt.year, date_dt.month, date_dt.day, 23, 59, tzinfo=TZ))
-
+def find_proper_night_bounds(date_dt):
+    """
+    Return (night_start, night_end) for proper night.
+    Proper night = Sun center below -18° (outside all twilights).
+    night_start = evening transition into Night.
+    night_end   = morning transition out of Night.
+    """
+    noon = datetime(date_dt.year, date_dt.month, date_dt.day, 12, 0, tzinfo=TZ)
+    t0 = ts.from_datetime(noon)
+    t1 = ts.from_datetime(noon + timedelta(days=1))
+    
     f = almanac.dark_twilight_day(eph, austin)
     times, events = almanac.find_discrete(t0, t1, f)
-
-    sunrise = None
-    sunset = None
+    
+    night_start = None
+    night_end = None
+    
     for ti, event in zip(times, events):
         dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
-        if event == 4:
-            sunrise = dt_local
-        elif event == 3 and sunrise is not None:
-            sunset = dt_local
-
-    return sunset, sunrise
+        if event == 0 and night_start is None:
+            # Entering Night (end of evening astronomical twilight)
+            night_start = dt_local
+        elif event == 1 and night_start is not None and night_end is None:
+            # Leaving Night (start of morning astronomical twilight)
+            night_end = dt_local
+    
+    return night_start, night_end
 
 def find_first_30_deg(planet, start_dt, end_dt):
+    if start_dt is None or end_dt is None or start_dt >= end_dt:
+        return None
     current = start_dt
     step = timedelta(minutes=2)
     while current <= end_dt:
@@ -256,7 +268,7 @@ def main():
 
     # Planets
     time_21 = make_austin_dt(today.year, today.month, today.day, 21, 0)
-    sunset, sunrise = find_sunset_sunrise(today)
+    night_start, night_end = find_proper_night_bounds(today)
 
     above_horizon = []
     reach_30_lines = []
@@ -268,11 +280,12 @@ def main():
 
         # Report 30° crossing for planets not conveniently placed at 9 PM
         if alt_21 <= 0 or alt_21 < 30:
-            first_30 = find_first_30_deg(planet, sunset, sunrise)
+            first_30 = find_first_30_deg(planet, night_start, night_end)
             if first_30:
-                alt_at_sunset = planet_altitude(planet, sunset)
-                if alt_at_sunset < 30:
+                alt_at_night_start = planet_altitude(planet, night_start)
+                if alt_at_night_start < 30:
                     reach_30_lines.append(f"- {name}: {format_time(first_30)}")
+                # If already >= 30° at start of proper night, it did not "reach" 30° during the night
             else:
                 reach_30_lines.append(f"- {name}: does not reach 30° overnight")
 
