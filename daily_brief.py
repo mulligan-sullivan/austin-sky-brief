@@ -301,7 +301,7 @@ def main():
             parts.append(f"twilight category changed from {yesterday_cat.lower()} to {today_cat.lower()}")
         if tomorrow_cat != today_cat:
             parts.append(f"will change to {tomorrow_cat.lower()} tomorrow")
-        transition = "Transition notice: " + "; ".join(parts) + "\n\n"
+        transition = "Transition notice: " + "; ".join(parts)
 
     # Twilight duration for today's 6:15 AM category
     twilight_start, twilight_end, twilight_cat_name = twilight_interval_for_time(today_615)
@@ -338,42 +338,41 @@ def main():
     # Weather
     weather = get_weather()
 
-    # Build report
+    # Build report with explicit spacing
     weekday = today.strftime("%A")
     month_day = today.strftime("%B %-d")
     year = today.year
 
-    report = f"""## Austin Sky + Weather — {weekday}, {month_day}, {year}
+    report = f"## Austin Sky + Weather — {weekday}, {month_day}, {year}\n\n"
+    report += f"### Twilight at 6:15 AM\n\n"
 
-### Twilight at 6:15 AM
-{transition}Today: {twilight_line(today_elev)}
-{twilight_duration_line}
-Yesterday: {twilight_line(yesterday_elev)}
-Tomorrow: {twilight_line(tomorrow_elev)}
+    if transition:
+        report += f"{transition}\n\n"
 
-### Moon
-{moon_info}
+    report += f"Today: {twilight_line(today_elev)}\n"
+    report += f"Yesterday: {twilight_line(yesterday_elev)}\n"
+    report += f"Tomorrow: {twilight_line(tomorrow_elev)}\n\n"
 
-### Planets
-Above the horizon at 9:00 PM today: {", ".join(above_horizon) if above_horizon else "None"}
+    if twilight_duration_line:
+        report += f"{twilight_duration_line}\n\n"
 
-"""
+    report += f"### Moon\n\n"
+    report += f"{moon_info}\n\n"
+    report += f"### Planets\n\n"
+    report += f"Above the horizon at 9:00 PM today: {', '.join(above_horizon) if above_horizon else 'None'}\n\n"
+
     if reach_30_lines:
-        report += "Reaches 30° altitude during the night:\n"
-        report += "\n".join(reach_30_lines) + "\n"
+        report += "Reaches 30° altitude during the night:\n\n"
+        report += "\n".join(reach_30_lines) + "\n\n"
     else:
-        report += "All visible planets are already at 30° or higher at 9:00 PM.\n"
+        report += "All visible planets are already at 30° or higher at 9:00 PM.\n\n"
 
-    report += f"""
-
-### Weather
-- Current temperature: {weather['current']}°F
-- Expected high: {weather['high']}°F
-- Expected low: {weather['low']}°F
-- Rain: {weather['rain_str']}
-
-Sources: Skyfield (JPL DE421 ephemeris), Open-Meteo
-"""
+    report += f"### Weather\n\n"
+    report += f"- Current temperature: {weather['current']}°F\n"
+    report += f"- Expected high: {weather['high']}°F\n"
+    report += f"- Expected low: {weather['low']}°F\n"
+    report += f"- Rain: {weather['rain_str']}\n\n"
+    report += f"Sources: Skyfield (JPL DE421 ephemeris), Open-Meteo"
 
     print(report)
     send_ntfy(NTFY_TOPIC, report)
