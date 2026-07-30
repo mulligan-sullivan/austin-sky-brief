@@ -85,6 +85,46 @@ def twilight_line(elev):
         pct = twilight_percent(elev, cat)
         return f"{cat.lower()}, about {pct:.1f}% — Sun center approximately {elev:.2f}°"
 
+def twilight_interval_for_time(target_dt):
+    """Return (start, end, category_name) for the twilight interval containing target_dt."""
+    noon_prev = datetime(target_dt.year, target_dt.month, target_dt.day, 12, 0, tzinfo=TZ) - timedelta(days=1)
+    noon_next = datetime(target_dt.year, target_dt.month, target_dt.day, 12, 0, tzinfo=TZ) + timedelta(days=1)
+    
+    t0 = ts.from_datetime(noon_prev)
+    t1 = ts.from_datetime(noon_next)
+    
+    f = almanac.dark_twilight_day(eph, austin)
+    times, events = almanac.find_discrete(t0, t1, f)
+    
+    phase_at_start = int(f(t0))
+    
+    category_names = {
+        0: "Night",
+        1: "Astronomical twilight",
+        2: "Nautical twilight",
+        3: "Civil twilight",
+        4: "Daylight",
+    }
+    
+    intervals = []
+    current_start = t0.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
+    current_phase = phase_at_start
+    
+    for ti, event in zip(times, events):
+        dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
+        intervals.append((current_start, dt_local, category_names[current_phase]))
+        current_start = dt_local
+        current_phase = int(event)
+    
+    end_search = t1.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
+    intervals.append((current_start, end_search, category_names[current_phase]))
+    
+    for start, end, cat in intervals:
+        if start <= target_dt < end:
+            return start, end, cat
+    
+    return None, None, "Unknown"
+
 def get_moon_info(dt):
     t = ts.from_datetime(dt)
     phase = almanac.moon_phase(eph, t)
@@ -263,6 +303,12 @@ def main():
             parts.append(f"will change to {tomorrow_cat.lower()} tomorrow")
         transition = "Transition notice: " + "; ".join(parts) + "\n\n"
 
+    # Twilight duration for today's 6:15 AM category
+    twilight_start, twilight_end, twilight_cat_name = twilight_interval_for_time(today_615)
+    twilight_duration_line = ""
+    if twilight_start and twilight_end:
+        twilight_duration_line = f"Today's {twilight_cat_name.lower()} lasts from about {format_time(twilight_start)} to {format_time(twilight_end)}."
+
     # Moon
     moon_info = get_moon_info(today_615)
 
@@ -301,6 +347,7 @@ def main():
 
 ### Twilight at 6:15 AM
 {transition}Today: {twilight_line(today_elev)}
+{twilight_duration_line}
 Yesterday: {twilight_line(yesterday_elev)}
 Tomorrow: {twilight_line(tomorrow_elev)}
 
