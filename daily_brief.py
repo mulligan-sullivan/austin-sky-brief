@@ -21,6 +21,9 @@ ELEVATION_M = 149
 TZ = ZoneInfo("America/Chicago")
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 
+# Minimum altitude to report as "meaningfully up."
+ALTITUDE_THRESHOLD = 15  # degrees
+
 # ==================== SKYFIELD SETUP ====================
 load = Loader('./skyfield_data')
 eph = load('de421.bsp')
@@ -182,13 +185,25 @@ def find_proper_night_bounds(date_dt):
     
     return night_start, night_end
 
-def find_first_30_deg(planet, start_dt, end_dt):
+def find_first_threshold(planet, start_dt, end_dt, threshold):
     if start_dt is None or end_dt is None or start_dt >= end_dt:
         return None
     current = start_dt
     step = timedelta(minutes=2)
     while current <= end_dt:
-        if planet_altitude(planet, current) >= 30:
+        if planet_altitude(planet, current) >= threshold:
+            return current
+        current += step
+    return None
+
+def find_drop_below_threshold(planet, start_dt, end_dt, threshold):
+    """Find when planet first drops below threshold after start_dt."""
+    if start_dt is None or end_dt is None or start_dt >= end_dt:
+        return None
+    current = start_dt
+    step = timedelta(minutes=2)
+    while current <= end_dt:
+        if planet_altitude(planet, current) < threshold:
             return current
         current += step
     return None
@@ -316,24 +331,40 @@ def main():
     time_21 = make_austin_dt(today.year, today.month, today.day, 21, 0)
     night_start, night_end = find_proper_night_bounds(today)
 
-    above_horizon = []
-    reach_30_lines = []
+    above_horizon_21 = []
+    reach_threshold_lines = []
+    not_reach_lines = []
 
     for name, planet in PLANETS.items():
         alt_21 = planet_altitude(planet, time_21)
+        
         if alt_21 > 0:
-            above_horizon.append(name)
-
-        # Report 30° crossing for planets not conveniently placed at 9 PM
-        if alt_21 <= 0 or alt_21 < 30:
-            first_30 = find_first_30_deg(planet, night_start, night_end)
-            if first_30:
-                alt_at_night_start = planet_altitude(planet, night_start)
-                if alt_at_night_start < 30:
-                    reach_30_lines.append(f"- {name}: {format_time(first_30)}")
-                # If already >= 30° at start of proper night, it did not "reach" 30° during the night
+            # Planet is already above horizon at 9:00 PM.
+            # Do not include it in the overnight threshold lists.
+            above_horizon_21.append(name)
+            continue
+        
+        # Planet is NOT above horizon at 9:00 PM.
+        first_hit = find_first_threshold(planet, night_start, night_end, ALTITUDE_THRESHOLD)
+        if first_hit:
+            # Check if still above threshold when proper night ends
+            alt_at_night_end = planet_altitude(planet, night_end)
+            if alt_at_night_end >= ALTITUDE_THRESHOLD:
+                reach_threshold_lines.append(
+                    f"- {name}: {format_time(first_hit)} (still above {ALTITUDE_THRESHOLD}° at end of night)"
+                )
             else:
-                reach_30_lines.append(f"- {name}: does not reach 30° overnight")
+                drop_time = find_drop_below_threshold(planet, first_hit, night_end, ALTITUDE_THRESHOLD)
+                if drop_time:
+                    reach_threshold_lines.append(
+                        f"- {name}: {format_time(first_hit)} (drops below {ALTITUDE_THRESHOLD}° by {format_time(drop_time)})"
+                    )
+                else:
+                    reach_threshold_lines.append(f"- {name}: {format_time(first_hit)}")
+        else:
+            not_reach_lines.append(
+                f"- {name}: not above horizon at 9:00 PM; does not reach {ALTITUDE_THRESHOLD}° overnight"
+            )
 
     # Weather
     weather = get_weather()
@@ -359,13 +390,15 @@ def main():
     report += f"### Moon\n\n"
     report += f"{moon_info}\n\n"
     report += f"### Planets\n\n"
-    report += f"Above the horizon at 9:00 PM today: {', '.join(above_horizon) if above_horizon else 'None'}\n\n"
+    report += f"Above the horizon at 9:00 PM today: {', '.join(above_horizon_21) if above_horizon_21 else 'None'}\n\n"
 
-    if reach_30_lines:
-        report += "Reaches 30° altitude during the night:\n\n"
-        report += "\n".join(reach_30_lines) + "\n\n"
-    else:
-        report += "All visible planets are already at 30° or higher at 9:00 PM.\n\n"
+    if reach_threshold_lines:
+        report += f"Reaches {ALTITUDE_THRESHOLD}° altitude during the night (not above horizon at 9:00 PM):\n\n"
+        report += "\n".join(reach_threshold_lines) + "\n\n"
+
+    if not_reach_lines:
+        report += f"Not above horizon at 9:00 PM, and does not reach {ALTITUDE_THRESHOLD}° overnight:\n\n"
+        report += "\n".join(not_reach_lines) + "\n\n"
 
     report += f"### Weather\n\n"
     report += f"- Current temperature: {weather['current']}°F\n"
