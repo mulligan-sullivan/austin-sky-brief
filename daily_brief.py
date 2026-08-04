@@ -376,16 +376,17 @@ def send_ntfy(topic, message, image_path=None):
     url = f"https://ntfy.sh/{topic}"
     try:
         if image_path and os.path.exists(image_path):
-            headers = {
-                "Title": "Austin Sky + Weather",
-                "X-Message": message,
-                "Priority": "default",
-                "Markdown": "yes",
-                "Content-Type": "image/png",
-            }
+            # Send text + image as multipart form-data
             with open(image_path, 'rb') as f:
-                response = requests.post(url, data=f, headers=headers, timeout=30)
+                files = {'file': ('twilight.png', f, 'image/png')}
+                data = {
+                    'message': message,
+                    'title': 'Austin Sky + Weather',
+                    'priority': 'default',
+                }
+                response = requests.post(url, data=data, files=files, timeout=30)
         else:
+            # Text only
             headers = {
                 "Title": "Austin Sky + Weather",
                 "Priority": "default",
@@ -439,7 +440,7 @@ def main():
     twilight_start, twilight_end, twilight_cat_name = twilight_interval_for_time(today_615)
     twilight_duration_line = ""
     if twilight_start and twilight_end:
-        twilight_duration_line = f"Today's {twilight_cat_name.lower()} lasts from about {format_time(twilight_start)} to {format_time(twilight_end)}."
+        twilight_duration_line = f"Today {twilight_cat_name.lower()} lasts from about {format_time(twilight_start)} to {format_time(twilight_end)}."
 
     # Generate twilight chart
     chart_path = "./twilight_chart.png"
