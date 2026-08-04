@@ -501,15 +501,15 @@ def main():
     if weather['high'] != 'N/A' and weather['low'] != 'N/A':
         avg_temp = (weather['high'] + weather['low']) / 2
         day_temp_pct = ((avg_temp - DAY_TEMP_MIN) / (DAY_TEMP_MAX - DAY_TEMP_MIN)) * 100
-        day_temp_line = f"- Day temperature: {day_temp_pct:.1f}%"
+        day_temp_line = f"- Temperature percent: {day_temp_pct:.1f}%"
     else:
-        day_temp_line = "- Day temperature: N/A"
+        day_temp_line = "- Temperature percent: N/A"
 
     if weather['rain_raw'] != 'N/A':
         rain_pct = (weather['rain_raw'] / RAIN_MAX) * 100
-        rain_pct_line = f"- Rain percent: {rain_pct:.1f}%"
+        rain_pct_line = f"- Wetness percent: {rain_pct:.1f}%"
     else:
-        rain_pct_line = "- Rain percent: N/A"
+        rain_pct_line = "- Wetness percent: N/A"
 
     # Build report with explicit spacing
     weekday = today.strftime("%A")
