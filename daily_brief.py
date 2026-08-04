@@ -372,32 +372,37 @@ def get_weather():
             'rain_raw': 'N/A',
         }
 
-def send_ntfy(topic, message, image_path=None):
+def send_ntfy_text(topic, message):
+    """Send text notification."""
+    url = f"https://ntfy.sh/{topic}"
+    headers = {
+        "Title": "Austin Sky + Weather",
+        "Priority": "default",
+        "Markdown": "yes",
+    }
+    try:
+        response = requests.post(url, data=message.encode('utf-8'), headers=headers, timeout=30)
+        response.raise_for_status()
+        print("Text notification sent.")
+    except Exception as e:
+        print(f"Failed to send text: {e}")
+        sys.exit(1)
+
+def send_ntfy_image(topic, image_path, title):
+    """Send image notification with raw image body."""
     url = f"https://ntfy.sh/{topic}"
     try:
-        if image_path and os.path.exists(image_path):
-            # Send text + image as multipart form-data
-            with open(image_path, 'rb') as f:
-                files = {'file': ('twilight.png', f, 'image/png')}
-                data = {
-                    'message': message,
-                    'title': 'Austin Sky + Weather',
-                    'priority': 'default',
-                }
-                response = requests.post(url, data=data, files=files, timeout=30)
-        else:
-            # Text only
+        with open(image_path, 'rb') as f:
             headers = {
-                "Title": "Austin Sky + Weather",
-                "Priority": "default",
-                "Markdown": "yes",
+                "Content-Type": "image/png",
+                "X-Title": title,
+                "X-Priority": "default",
             }
-            response = requests.post(url, data=message.encode('utf-8'), headers=headers, timeout=30)
+            response = requests.post(url, data=f, headers=headers, timeout=30)
         response.raise_for_status()
-        print("Notification sent successfully.")
+        print("Image notification sent.")
     except Exception as e:
-        print(f"Failed to send notification: {e}")
-        sys.exit(1)
+        print(f"Failed to send image: {e}")
 
 # ==================== MAIN ====================
 
@@ -444,12 +449,12 @@ def main():
 
     # Generate twilight chart
     chart_path = "./twilight_chart.png"
+    chart_ready = False
     try:
         generate_twilight_chart(today, today_615, chart_path)
         chart_ready = os.path.exists(chart_path)
     except Exception as e:
         print(f"Chart generation failed: {e}")
-        chart_ready = False
 
     # Moon
     moon_info = get_moon_info(today_615)
@@ -547,7 +552,13 @@ def main():
     report += f"Sources: Skyfield (JPL DE421 ephemeris), Open-Meteo"
 
     print(report)
-    send_ntfy(NTFY_TOPIC, report, chart_path if chart_ready else None)
+    
+    # Send text report
+    send_ntfy_text(NTFY_TOPIC, report)
+    
+    # Send chart as separate image notification
+    if chart_ready:
+        send_ntfy_image(NTFY_TOPIC, chart_path, "Twilight at 6:15 AM")
 
 if __name__ == "__main__":
     main()
