@@ -11,6 +11,11 @@ import requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
 from skyfield.api import Loader, wgs84
 from skyfield import almanac
 
@@ -23,6 +28,13 @@ NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 
 # Minimum altitude to report as "meaningfully up."
 ALTITUDE_THRESHOLD = 15  # degrees
+
+# Temperature scale: 46.4°F = 0%, 88.3°F = 100%
+DAY_TEMP_MIN = 46.4
+DAY_TEMP_MAX = 88.3
+
+# Rain scale: 0 inches = 0%, 0.653 inches = 100%
+RAIN_MAX = 0.653
 
 # ==================== SKYFIELD SETUP ====================
 load = Loader('./skyfield_data')
@@ -127,6 +139,98 @@ def twilight_interval_for_time(target_dt):
             return start, end, cat
     
     return None, None, "Unknown"
+
+def generate_twilight_chart(date_dt, target_dt, filename):
+    """Generate a 2-hour twilight timeline chart centered on target_dt."""
+    window_start = target_dt - timedelta(hours=1)
+    window_end = target_dt + timedelta(hours=1)
+    
+    t0 = ts.from_datetime(window_start - timedelta(hours=3))
+    t1 = ts.from_datetime(window_end + timedelta(hours=3))
+    
+    f = almanac.dark_twilight_day(eph, austin)
+    times, events = almanac.find_discrete(t0, t1, f)
+    
+    category_names = {
+        0: "Night",
+        1: "Astronomical twilight",
+        2: "Nautical twilight",
+        3: "Civil twilight",
+        4: "Daylight",
+    }
+    
+    colors = {
+        "Night": "#0a1519",
+        "Astronomical twilight": "#1a3a4a",
+        "Nautical twilight": "#2d5a6b",
+        "Civil twilight": "#5ab4d4",
+        "Daylight": "#a8d8e8",
+    }
+    
+    intervals = []
+    current_start = t0.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
+    current_phase = int(f(t0))
+    
+    for ti, event in zip(times, events):
+        dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
+        intervals.append((current_start, dt_local, category_names[current_phase]))
+        current_start = dt_local
+        current_phase = int(event)
+    
+    end_search = t1.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
+    intervals.append((current_start, end_search, category_names[current_phase]))
+    
+    fig, ax = plt.subplots(figsize=(6, 1.0), dpi=150)
+    
+    total_seconds = (window_end - window_start).total_seconds()
+    
+    for start, end, cat in intervals:
+        s = max(start, window_start)
+        e = min(end, window_end)
+        if s >= e:
+            continue
+        
+        left = (s - window_start).total_seconds() / total_seconds
+        width = (e - s).total_seconds() / total_seconds
+        
+        rect = patches.FancyBboxPatch(
+            (left, 0.35), width, 0.3,
+            boxstyle="round,pad=0.005",
+            facecolor=colors[cat], edgecolor='none'
+        )
+        ax.add_patch(rect)
+        
+        if width > 0.10:
+            text_color = 'white' if cat in ['Night', 'Astronomical twilight', 'Nautical twilight'] else '#1a3a4a'
+            short_name = cat.replace(' twilight', '').replace('Astronomical', 'Astro')
+            ax.text(left + width/2, 0.5, short_name,
+                   ha='center', va='center', fontsize=6, color=text_color, fontweight='bold')
+    
+    # 6:15 AM marker — solid black line
+    target_left = (target_dt - window_start).total_seconds() / total_seconds
+    ax.axvline(x=target_left, color='black', linewidth=2.5, linestyle='-', zorder=5)
+    
+    # Time labels every 30 minutes
+    tick_times = []
+    t = window_start
+    while t <= window_end:
+        tick_times.append(t)
+        t += timedelta(minutes=30)
+    
+    tick_positions = [(t - window_start).total_seconds() / total_seconds for t in tick_times]
+    tick_labels = [t.strftime('%-I:%M') for t in tick_times]
+    
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels, fontsize=7, color='#888888')
+    ax.tick_params(axis='x', length=0, pad=2)
+    
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+    
+    plt.tight_layout(pad=0.3)
+    plt.savefig(filename, dpi=150, bbox_inches='tight', facecolor='white', edgecolor='none', pad_inches=0.05)
+    plt.close()
 
 def get_moon_info(dt):
     t = ts.from_datetime(dt)
@@ -256,6 +360,7 @@ def get_weather():
             'high': high,
             'low': low,
             'rain_str': rain_str,
+            'rain_raw': rain,
         }
     except Exception as e:
         print(f"Weather fetch failed: {e}")
@@ -264,17 +369,29 @@ def get_weather():
             'high': 'N/A',
             'low': 'N/A',
             'rain_str': 'Unable to fetch weather data',
+            'rain_raw': 'N/A',
         }
 
-def send_ntfy(topic, message):
+def send_ntfy(topic, message, image_path=None):
     url = f"https://ntfy.sh/{topic}"
-    headers = {
-        "Title": "Austin Sky + Weather",
-        "Priority": "default",
-        "Markdown": "yes",
-    }
     try:
-        response = requests.post(url, data=message.encode('utf-8'), headers=headers, timeout=30)
+        if image_path and os.path.exists(image_path):
+            headers = {
+                "Title": "Austin Sky + Weather",
+                "X-Message": message,
+                "Priority": "default",
+                "Markdown": "yes",
+                "Content-Type": "image/png",
+            }
+            with open(image_path, 'rb') as f:
+                response = requests.post(url, data=f, headers=headers, timeout=30)
+        else:
+            headers = {
+                "Title": "Austin Sky + Weather",
+                "Priority": "default",
+                "Markdown": "yes",
+            }
+            response = requests.post(url, data=message.encode('utf-8'), headers=headers, timeout=30)
         response.raise_for_status()
         print("Notification sent successfully.")
     except Exception as e:
@@ -324,6 +441,15 @@ def main():
     if twilight_start and twilight_end:
         twilight_duration_line = f"Today's {twilight_cat_name.lower()} lasts from about {format_time(twilight_start)} to {format_time(twilight_end)}."
 
+    # Generate twilight chart
+    chart_path = "./twilight_chart.png"
+    try:
+        generate_twilight_chart(today, today_615, chart_path)
+        chart_ready = os.path.exists(chart_path)
+    except Exception as e:
+        print(f"Chart generation failed: {e}")
+        chart_ready = False
+
     # Moon
     moon_info = get_moon_info(today_615)
 
@@ -339,15 +465,11 @@ def main():
         alt_21 = planet_altitude(planet, time_21)
         
         if alt_21 > 0:
-            # Planet is already above horizon at 9:00 PM.
-            # Do not include it in the overnight threshold lists.
             above_horizon_21.append(name)
             continue
         
-        # Planet is NOT above horizon at 9:00 PM.
         first_hit = find_first_threshold(planet, night_start, night_end, ALTITUDE_THRESHOLD)
         if first_hit:
-            # Check if still above threshold when proper night ends
             alt_at_night_end = planet_altitude(planet, night_end)
             if alt_at_night_end >= ALTITUDE_THRESHOLD:
                 reach_threshold_lines.append(
@@ -368,6 +490,20 @@ def main():
 
     # Weather
     weather = get_weather()
+
+    # Calculated percentages
+    if weather['high'] != 'N/A' and weather['low'] != 'N/A':
+        avg_temp = (weather['high'] + weather['low']) / 2
+        day_temp_pct = ((avg_temp - DAY_TEMP_MIN) / (DAY_TEMP_MAX - DAY_TEMP_MIN)) * 100
+        day_temp_line = f"- Day temperature: {day_temp_pct:.1f}%"
+    else:
+        day_temp_line = "- Day temperature: N/A"
+
+    if weather['rain_raw'] != 'N/A':
+        rain_pct = (weather['rain_raw'] / RAIN_MAX) * 100
+        rain_pct_line = f"- Rain percent: {rain_pct:.1f}%"
+    else:
+        rain_pct_line = "- Rain percent: N/A"
 
     # Build report with explicit spacing
     weekday = today.strftime("%A")
@@ -404,11 +540,13 @@ def main():
     report += f"- Current temperature: {weather['current']}°F\n"
     report += f"- Expected high: {weather['high']}°F\n"
     report += f"- Expected low: {weather['low']}°F\n"
-    report += f"- Rain: {weather['rain_str']}\n\n"
+    report += f"{day_temp_line}\n"
+    report += f"- Rain: {weather['rain_str']}\n"
+    report += f"{rain_pct_line}\n\n"
     report += f"Sources: Skyfield (JPL DE421 ephemeris), Open-Meteo"
 
     print(report)
-    send_ntfy(NTFY_TOPIC, report)
+    send_ntfy(NTFY_TOPIC, report, chart_path if chart_ready else None)
 
 if __name__ == "__main__":
     main()
