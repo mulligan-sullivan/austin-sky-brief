@@ -255,11 +255,19 @@ def get_moon_info(dt):
         return f"Full moon, about {illumination:.0f}% illuminated"
     return f"{trend.lower()} {name}, about {illumination:.0f}% illuminated"
 
-def planet_altitude(planet, dt):
+def planet_position(planet, dt):
+    """Return (altitude_deg, azimuth_deg) for planet at dt."""
     t = ts.from_datetime(dt)
     apparent = observer.at(t).observe(planet).apparent()
     alt, az, dist = apparent.altaz()
-    return alt.degrees
+    return alt.degrees, az.degrees
+
+def format_alt_dir(alt, az):
+    """Format altitude and azimuth as 'X° above East/West' or 'straight up'."""
+    if alt >= 89:
+        return "straight up"
+    direction = "East" if az < 180 else "West"
+    return f"{alt:.0f}° above {direction}"
 
 def find_proper_night_bounds(date_dt):
     """
@@ -295,7 +303,8 @@ def find_first_threshold(planet, start_dt, end_dt, threshold):
     current = start_dt
     step = timedelta(minutes=2)
     while current <= end_dt:
-        if planet_altitude(planet, current) >= threshold:
+        alt, az = planet_position(planet, current)
+        if alt >= threshold:
             return current
         current += step
     return None
@@ -307,7 +316,21 @@ def find_drop_below_threshold(planet, start_dt, end_dt, threshold):
     current = start_dt
     step = timedelta(minutes=2)
     while current <= end_dt:
-        if planet_altitude(planet, current) < threshold:
+        alt, az = planet_position(planet, current)
+        if alt < threshold:
+            return current
+        current += step
+    return None
+
+def find_set_time(planet, start_dt, end_dt):
+    """Find when planet first drops below horizon (alt < 0) after start_dt."""
+    if start_dt is None or end_dt is None or start_dt >= end_dt:
+        return None
+    current = start_dt
+    step = timedelta(minutes=2)
+    while current <= end_dt:
+        alt, az = planet_position(planet, current)
+        if alt < 0:
             return current
         current += step
     return None
@@ -468,11 +491,17 @@ def main():
     not_reach_lines = []
 
     for name, planet in PLANETS.items():
-        alt_21 = planet_altitude(planet, time_21)
+        alt_21, az_21 = planet_position(planet, time_21)
         
         if alt_21 >= ALTITUDE_THRESHOLD:
-            # Already above threshold at 9:00 PM — no overnight tracking needed
-            above_threshold_21.append(name)
+            # Already above threshold at 9:00 PM — find when it sets
+            set_time = find_set_time(planet, time_21, night_end)
+            if set_time:
+                above_threshold_21.append(f"- {name}: above {ALTITUDE_THRESHOLD}° at 9:00 PM, sets at {format_time(set_time)}")
+            else:
+                # Does not set overnight — report 6:15 AM position
+                alt_615, az_615 = planet_position(planet, today_615)
+                above_threshold_21.append(f"- {name}: above {ALTITUDE_THRESHOLD}° at 9:00 PM, at 6:15 AM: {format_alt_dir(alt_615, az_615)}")
             continue
         
         # Not above threshold at 9:00 PM — check overnight
@@ -484,11 +513,10 @@ def main():
                     f"- {name}: {format_time(first_hit)} (drops below {ALTITUDE_THRESHOLD}° by {format_time(drop_time)})"
                 )
             else:
-                # Still above threshold at end of night — report 6:15 AM percentage
-                alt_at_615 = planet_altitude(planet, today_615)
-                pct_at_615 = (alt_at_615 / ALTITUDE_THRESHOLD) * 100
+                # Still above threshold at end of night — report 6:15 AM altitude and direction
+                alt_615, az_615 = planet_position(planet, today_615)
                 reach_threshold_lines.append(
-                    f"- {name}: {format_time(first_hit)} (at 6:15 AM: {pct_at_615:.1f}%)"
+                    f"- {name}: {format_time(first_hit)} (at 6:15 AM: {format_alt_dir(alt_615, az_615)})"
                 )
         else:
             not_reach_lines.append(
@@ -533,7 +561,10 @@ def main():
     report += f"### Moon\n\n"
     report += f"{moon_info}\n\n"
     report += f"### Planets\n\n"
-    report += f"Above {ALTITUDE_THRESHOLD}° at 9:00 PM today: {', '.join(above_threshold_21) if above_threshold_21 else 'None'}\n\n"
+
+    if above_threshold_21:
+        report += f"Above {ALTITUDE_THRESHOLD}° at 9:00 PM today:\n\n"
+        report += "\n".join(above_threshold_21) + "\n\n"
 
     if reach_threshold_lines:
         report += f"Reaches {ALTITUDE_THRESHOLD}° altitude during the night (not above {ALTITUDE_THRESHOLD}° at 9:00 PM):\n\n"
