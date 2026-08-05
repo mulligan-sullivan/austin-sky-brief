@@ -487,7 +487,7 @@ def main():
     night_start, night_end = find_proper_night_bounds(today)
 
     above_threshold_21 = []
-    reach_threshold_lines = []
+    reach_threshold_data = []  # (first_hit_time, formatted_string)
     not_reach_lines = []
 
     for name, planet in PLANETS.items():
@@ -509,19 +509,20 @@ def main():
         if first_hit:
             drop_time = find_drop_below_threshold(planet, first_hit, night_end, ALTITUDE_THRESHOLD)
             if drop_time:
-                reach_threshold_lines.append(
-                    f"- {name}: {format_time(first_hit)} (drops below {ALTITUDE_THRESHOLD}° by {format_time(drop_time)})"
-                )
+                line = f"- {name}: {format_time(first_hit)} (drops below {ALTITUDE_THRESHOLD}° by {format_time(drop_time)})"
             else:
                 # Still above threshold at end of night — report 6:15 AM altitude and direction
                 alt_615, az_615 = planet_position(planet, today_615)
-                reach_threshold_lines.append(
-                    f"- {name}: {format_time(first_hit)} (at 6:15 AM: {format_alt_dir(alt_615, az_615)})"
-                )
+                line = f"- {name}: {format_time(first_hit)} (at 6:15 AM: {format_alt_dir(alt_615, az_615)})"
+            reach_threshold_data.append((first_hit, line))
         else:
             not_reach_lines.append(
                 f"- {name}: not above {ALTITUDE_THRESHOLD}° at 9:00 PM; does not reach {ALTITUDE_THRESHOLD}° overnight"
             )
+
+    # Sort overnight risers by time they first reach threshold
+    reach_threshold_data.sort(key=lambda x: x[0])
+    reach_threshold_lines = [item[1] for item in reach_threshold_data]
 
     # Weather
     weather = get_weather()
