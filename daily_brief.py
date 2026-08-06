@@ -269,6 +269,21 @@ def format_alt_dir(alt, az):
     direction = "East" if az < 180 else "West"
     return f"{alt:.0f}° above {direction}"
 
+def find_next_moonrise(start_dt):
+    """Find next moonrise after start_dt."""
+    t0 = ts.from_datetime(start_dt)
+    t1 = ts.from_datetime(start_dt + timedelta(days=2))
+    
+    f = almanac.risings_and_settings(eph, moon, austin)
+    times, events = almanac.find_discrete(t0, t1, f)
+    
+    for ti, event in zip(times, events):
+        if event == 1:  # 1 = rising
+            dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
+            if dt_local > start_dt:
+                return dt_local
+    return None
+
 def find_proper_night_bounds(date_dt):
     """
     Return (night_start, night_end) for proper night.
@@ -481,6 +496,17 @@ def main():
 
     # Moon
     moon_info = get_moon_info(today_615)
+    
+    # Moon position at 6:15 AM
+    moon_alt, moon_az = planet_position(moon, today_615)
+    if moon_alt >= 0:
+        moon_pos_line = f"at 6:15 AM: {format_alt_dir(moon_alt, moon_az)}."
+    else:
+        next_rise = find_next_moonrise(today_615)
+        if next_rise:
+            moon_pos_line = f"at 6:15 AM: below the horizon, next rises at {format_time(next_rise)}."
+        else:
+            moon_pos_line = "at 6:15 AM: below the horizon."
 
     # Planets
     time_21 = make_austin_dt(today.year, today.month, today.day, 21, 0)
@@ -560,7 +586,8 @@ def main():
         report += f"{twilight_duration_line}\n\n"
 
     report += f"### Moon\n\n"
-    report += f"{moon_info}\n\n"
+    report += f"{moon_info}\n"
+    report += f"{moon_pos_line}\n\n"
     report += f"### Planets\n\n"
 
     if above_threshold_21:
