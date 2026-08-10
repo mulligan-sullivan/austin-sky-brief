@@ -520,14 +520,15 @@ def main():
         alt_21, az_21 = planet_position(planet, time_21)
         
         if alt_21 >= ALTITUDE_THRESHOLD:
-            # Already above threshold at 9:00 PM — find when it sets
+            # Already above threshold at 9:00 PM — show actual position, then find when it sets
+            pos_21 = format_alt_dir(alt_21, az_21)
             set_time = find_set_time(planet, time_21, night_end)
             if set_time:
-                above_threshold_21.append(f"- {name}: above {ALTITUDE_THRESHOLD}° at 9:00 PM, sets at {format_time(set_time)}")
+                above_threshold_21.append(f"- {name}: {pos_21} at 9:00 PM, sets at {format_time(set_time)}")
             else:
                 # Does not set overnight — report 6:15 AM position
                 alt_615, az_615 = planet_position(planet, today_615)
-                above_threshold_21.append(f"- {name}: above {ALTITUDE_THRESHOLD}° at 9:00 PM, at 6:15 AM: {format_alt_dir(alt_615, az_615)}")
+                above_threshold_21.append(f"- {name}: {pos_21} at 9:00 PM, at 6:15 AM: {format_alt_dir(alt_615, az_615)}")
             continue
         
         # Not above threshold at 9:00 PM — check overnight
