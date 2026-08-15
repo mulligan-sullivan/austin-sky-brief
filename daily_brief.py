@@ -36,6 +36,10 @@ DAY_TEMP_MAX = 88.3
 # Rain scale: 0 inches = 0%, 0.653 inches = 100%
 RAIN_MAX = 0.653
 
+# Wind scale: 2.64 mph = 0%, 18.37 mph = 100%
+WIND_MIN = 2.64
+WIND_MAX = 18.37
+
 # ==================== SKYFIELD SETUP ====================
 load = Loader('./skyfield_data')
 eph = load('de421.bsp')
@@ -269,6 +273,12 @@ def format_alt_dir(alt, az):
     direction = "East" if az < 180 else "West"
     return f"{alt:.0f}° above {direction}"
 
+def wind_direction(deg):
+    """Convert wind direction degrees to cardinal."""
+    dirs = ["North", "Northeast", "East", "Southeast", "South", "Southwest", "West", "Northwest"]
+    idx = round(deg / 45) % 8
+    return dirs[idx]
+
 def find_next_moonrise(start_dt):
     """Find next moonrise after start_dt."""
     t0 = ts.from_datetime(start_dt)
@@ -363,12 +373,14 @@ def get_weather():
     url = (
         "https://api.open-meteo.com/v1/forecast"
         "?latitude=30.2672&longitude=-97.7431"
-        "&current=temperature_2m"
+        "&current=temperature_2m,windspeed_10m,winddirection_10m"
+        "&hourly=windspeed_10m"
         "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code"
         "&timezone=America%2FChicago"
         "&forecast_days=1"
         "&temperature_unit=fahrenheit"
         "&precipitation_unit=inch"
+        "&windspeed_unit=mph"
     )
     try:
         r = requests.get(url, timeout=30)
@@ -393,12 +405,27 @@ def get_weather():
         if wcode in storm_codes and rain > 0:
             rain_str += " (thunderstorm-dependent; totals uncertain)"
 
+        # Current wind
+        current_wind_speed = data['current']['windspeed_10m']
+        current_wind_dir = data['current']['winddirection_10m']
+        current_wind_str = f"{current_wind_speed:.1f} mph from the {wind_direction(current_wind_dir)}"
+
+        # Daily average wind (scalar average of all hourly readings)
+        hourly_wind = data['hourly']['windspeed_10m']
+        avg_wind = sum(hourly_wind) / len(hourly_wind) if hourly_wind else 0
+
+        # Windiness percent
+        wind_pct = ((avg_wind - WIND_MIN) / (WIND_MAX - WIND_MIN)) * 100
+
         return {
             'current': current,
             'high': high,
             'low': low,
             'rain_str': rain_str,
             'rain_raw': rain,
+            'current_wind': current_wind_str,
+            'avg_wind': avg_wind,
+            'wind_pct': wind_pct,
         }
     except Exception as e:
         print(f"Weather fetch failed: {e}")
@@ -408,6 +435,9 @@ def get_weather():
             'low': 'N/A',
             'rain_str': 'Unable to fetch weather data',
             'rain_raw': 'N/A',
+            'current_wind': 'N/A',
+            'avg_wind': 'N/A',
+            'wind_pct': 'N/A',
         }
 
 def send_ntfy_text(topic, message):
@@ -541,83 +571,4 @@ def main():
                 # Still above threshold at end of night — report 6:15 AM altitude and direction
                 alt_615, az_615 = planet_position(planet, today_615)
                 line = f"- {name}: {format_time(first_hit)} (at 6:15 AM: {format_alt_dir(alt_615, az_615)})"
-            reach_threshold_data.append((first_hit, line))
-        else:
-            not_reach_names.append(name)
-
-    # Sort overnight risers by time they first reach threshold
-    reach_threshold_data.sort(key=lambda x: x[0])
-    reach_threshold_lines = [item[1] for item in reach_threshold_data]
-
-    # Weather
-    weather = get_weather()
-
-    # Calculated percentages
-    if weather['high'] != 'N/A' and weather['low'] != 'N/A':
-        avg_temp = (weather['high'] + weather['low']) / 2
-        day_temp_pct = ((avg_temp - DAY_TEMP_MIN) / (DAY_TEMP_MAX - DAY_TEMP_MIN)) * 100
-        day_temp_line = f"- Temperature percent: {day_temp_pct:.1f}%"
-    else:
-        day_temp_line = "- Temperature percent: N/A"
-
-    if weather['rain_raw'] != 'N/A':
-        rain_pct = (weather['rain_raw'] / RAIN_MAX) * 100
-        rain_pct_line = f"- Wetness percent: {rain_pct:.1f}%"
-    else:
-        rain_pct_line = "- Wetness percent: N/A"
-
-    # Build report with explicit spacing
-    weekday = today.strftime("%A")
-    month_day = today.strftime("%B %-d")
-    year = today.year
-
-    report = f"## Austin Sky + Weather — {weekday}, {month_day}, {year}\n\n"
-    report += f"### Twilight at 6:15 AM\n\n"
-
-    if transition:
-        report += f"{transition}\n\n"
-
-    report += f"Today: {twilight_line(today_elev)}\n"
-    report += f"Yesterday: {twilight_line(yesterday_elev)}\n"
-    report += f"Tomorrow: {twilight_line(tomorrow_elev)}\n\n"
-
-    if twilight_duration_line:
-        report += f"{twilight_duration_line}\n\n"
-
-    report += f"### Moon\n\n"
-    report += f"{moon_info}\n"
-    report += f"{moon_pos_line}\n\n"
-    report += f"### Planets\n\n"
-
-    if above_threshold_21:
-        report += f"Above {ALTITUDE_THRESHOLD}° at 9:00 PM today:\n\n"
-        report += "\n".join(above_threshold_21) + "\n\n"
-
-    if reach_threshold_lines:
-        report += f"Reaches {ALTITUDE_THRESHOLD}° altitude during the night (not above {ALTITUDE_THRESHOLD}° at 9:00 PM):\n\n"
-        report += "\n".join(reach_threshold_lines) + "\n\n"
-
-    if not_reach_names:
-        report += f"Not above {ALTITUDE_THRESHOLD}° at 9:00 PM, and does not reach {ALTITUDE_THRESHOLD}° overnight:\n\n"
-        report += ", ".join(not_reach_names) + "\n\n"
-
-    report += f"### Weather\n\n"
-    report += f"- Current temperature: {weather['current']}°F\n"
-    report += f"- Expected high: {weather['high']}°F\n"
-    report += f"- Expected low: {weather['low']}°F\n"
-    report += f"{day_temp_line}\n"
-    report += f"- Rain: {weather['rain_str']}\n"
-    report += f"{rain_pct_line}\n\n"
-    report += f"Sources: Skyfield (JPL DE421 ephemeris), Open-Meteo"
-
-    print(report)
-    
-    # Send text report
-    send_ntfy_text(NTFY_TOPIC, report)
-    
-    # Send chart as separate image notification
-    if chart_ready:
-        send_ntfy_image(NTFY_TOPIC, chart_path, "Twilight at 6:15 AM")
-
-if __name__ == "__main__":
-    main()
+        
