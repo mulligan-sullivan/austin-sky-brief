@@ -572,4 +572,52 @@ def main():
     year = today.year
 
     report = f"## Austin Sky + Weather — {weekday}, {month_day}, {year}\n\n"
-    report += f"### Twilight a
+    report += f"### Twilight at 6:15 AM\n\n"
+
+    if transition:
+        report += f"{transition}\n\n"
+
+    report += f"Today: {twilight_line(today_elev)}\n"
+    report += f"Yesterday: {twilight_line(yesterday_elev)}\n"
+    report += f"Tomorrow: {twilight_line(tomorrow_elev)}\n\n"
+
+    if twilight_duration_line:
+        report += f"{twilight_duration_line}\n\n"
+
+    report += f"### Moon\n\n"
+    report += f"{moon_info}\n"
+    report += f"{moon_pos_line}\n\n"
+    report += f"### Planets\n\n"
+
+    if above_threshold_21:
+        report += f"Above {ALTITUDE_THRESHOLD}° at 9:00 PM today:\n\n"
+        report += "\n".join(above_threshold_21) + "\n\n"
+
+    if reach_threshold_lines:
+        report += f"Reaches {ALTITUDE_THRESHOLD}° altitude during the night (not above {ALTITUDE_THRESHOLD}° at 9:00 PM):\n\n"
+        report += "\n".join(reach_threshold_lines) + "\n\n"
+
+    if not_reach_names:
+        report += f"Not above {ALTITUDE_THRESHOLD}° at 9:00 PM, and does not reach {ALTITUDE_THRESHOLD}° overnight:\n\n"
+        report += ", ".join(not_reach_names) + "\n\n"
+
+    report += f"### Weather\n\n"
+    report += f"- Current temperature: {weather['current']}°F\n"
+    report += f"- Expected high: {weather['high']}°F\n"
+    report += f"- Expected low: {weather['low']}°F\n"
+    report += f"{day_temp_line}\n"
+    report += f"- Rain: {weather['rain_str']}\n"
+    report += f"{rain_pct_line}\n\n"
+    report += f"Sources: Skyfield (JPL DE421 ephemeris), Open-Meteo"
+
+    print(report)
+    
+    # Send text report
+    send_ntfy_text(NTFY_TOPIC, report)
+    
+    # Send chart as separate image notification
+    if chart_ready:
+        send_ntfy_image(NTFY_TOPIC, chart_path, "Twilight at 6:15 AM")
+
+if __name__ == "__main__":
+    main()
