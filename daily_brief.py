@@ -108,15 +108,15 @@ def twilight_interval_for_time(target_dt):
     """Return (start, end, category_name) for the twilight interval containing target_dt."""
     noon_prev = datetime(target_dt.year, target_dt.month, target_dt.day, 12, 0, tzinfo=TZ) - timedelta(days=1)
     noon_next = datetime(target_dt.year, target_dt.month, target_dt.day, 12, 0, tzinfo=TZ) + timedelta(days=1)
-    
+
     t0 = ts.from_datetime(noon_prev)
     t1 = ts.from_datetime(noon_next)
-    
+
     f = almanac.dark_twilight_day(eph, austin)
     times, events = almanac.find_discrete(t0, t1, f)
-    
+
     phase_at_start = int(f(t0))
-    
+
     category_names = {
         0: "Night",
         1: "Astronomical twilight",
@@ -124,37 +124,37 @@ def twilight_interval_for_time(target_dt):
         3: "Civil twilight",
         4: "Daylight",
     }
-    
+
     intervals = []
     current_start = t0.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
     current_phase = phase_at_start
-    
+
     for ti, event in zip(times, events):
         dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
         intervals.append((current_start, dt_local, category_names[current_phase]))
         current_start = dt_local
         current_phase = int(event)
-    
+
     end_search = t1.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
     intervals.append((current_start, end_search, category_names[current_phase]))
-    
+
     for start, end, cat in intervals:
         if start <= target_dt < end:
             return start, end, cat
-    
+
     return None, None, "Unknown"
 
 def generate_twilight_chart(date_dt, target_dt, filename):
     """Generate a 2-hour twilight timeline chart centered on target_dt."""
     window_start = target_dt - timedelta(hours=1)
     window_end = target_dt + timedelta(hours=1)
-    
+
     t0 = ts.from_datetime(window_start - timedelta(hours=3))
     t1 = ts.from_datetime(window_end + timedelta(hours=3))
-    
+
     f = almanac.dark_twilight_day(eph, austin)
     times, events = almanac.find_discrete(t0, t1, f)
-    
+
     category_names = {
         0: "Night",
         1: "Astronomical twilight",
@@ -162,7 +162,7 @@ def generate_twilight_chart(date_dt, target_dt, filename):
         3: "Civil twilight",
         4: "Daylight",
     }
-    
+
     colors = {
         "Night": "#0a1519",
         "Astronomical twilight": "#1a3a4a",
@@ -170,68 +170,68 @@ def generate_twilight_chart(date_dt, target_dt, filename):
         "Civil twilight": "#5ab4d4",
         "Daylight": "#a8d8e8",
     }
-    
+
     intervals = []
     current_start = t0.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
     current_phase = int(f(t0))
-    
+
     for ti, event in zip(times, events):
         dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
         intervals.append((current_start, dt_local, category_names[current_phase]))
         current_start = dt_local
         current_phase = int(event)
-    
+
     end_search = t1.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
     intervals.append((current_start, end_search, category_names[current_phase]))
-    
+
     fig, ax = plt.subplots(figsize=(6, 1.0), dpi=150)
-    
+
     total_seconds = (window_end - window_start).total_seconds()
-    
+
     for start, end, cat in intervals:
         s = max(start, window_start)
         e = min(end, window_end)
         if s >= e:
             continue
-        
+
         left = (s - window_start).total_seconds() / total_seconds
         width = (e - s).total_seconds() / total_seconds
-        
+
         rect = patches.FancyBboxPatch(
             (left, 0.35), width, 0.3,
             boxstyle="round,pad=0.005",
             facecolor=colors[cat], edgecolor='none'
         )
         ax.add_patch(rect)
-        
+
         if width > 0.10:
             text_color = 'white' if cat in ['Night', 'Astronomical twilight', 'Nautical twilight'] else '#1a3a4a'
             short_name = cat.replace(' twilight', '').replace('Astronomical', 'Astro')
             ax.text(left + width/2, 0.5, short_name,
                    ha='center', va='center', fontsize=6, color=text_color, fontweight='bold')
-    
+
     # 6:15 AM marker — solid black line
     target_left = (target_dt - window_start).total_seconds() / total_seconds
     ax.axvline(x=target_left, color='black', linewidth=2.5, linestyle='-', zorder=5)
-    
+
     # Time labels every 30 minutes
     tick_times = []
     t = window_start
     while t <= window_end:
         tick_times.append(t)
         t += timedelta(minutes=30)
-    
+
     tick_positions = [(t - window_start).total_seconds() / total_seconds for t in tick_times]
     tick_labels = [t.strftime('%-I:%M') for t in tick_times]
-    
+
     ax.set_xticks(tick_positions)
     ax.set_xticklabels(tick_labels, fontsize=7, color='#888888')
     ax.tick_params(axis='x', length=0, pad=2)
-    
+
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis('off')
-    
+
     plt.tight_layout(pad=0.3)
     plt.savefig(filename, dpi=150, bbox_inches='tight', facecolor='white', edgecolor='none', pad_inches=0.05)
     plt.close()
@@ -273,20 +273,14 @@ def format_alt_dir(alt, az):
     direction = "East" if az < 180 else "West"
     return f"{alt:.0f}° above {direction}"
 
-def wind_direction(deg):
-    """Convert wind direction degrees to cardinal."""
-    dirs = ["North", "Northeast", "East", "Southeast", "South", "Southwest", "West", "Northwest"]
-    idx = round(deg / 45) % 8
-    return dirs[idx]
-
 def find_next_moonrise(start_dt):
     """Find next moonrise after start_dt."""
     t0 = ts.from_datetime(start_dt)
     t1 = ts.from_datetime(start_dt + timedelta(days=2))
-    
+
     f = almanac.risings_and_settings(eph, moon, austin)
     times, events = almanac.find_discrete(t0, t1, f)
-    
+
     for ti, event in zip(times, events):
         if event == 1:  # 1 = rising
             dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
@@ -304,13 +298,13 @@ def find_proper_night_bounds(date_dt):
     noon = datetime(date_dt.year, date_dt.month, date_dt.day, 12, 0, tzinfo=TZ)
     t0 = ts.from_datetime(noon)
     t1 = ts.from_datetime(noon + timedelta(days=1))
-    
+
     f = almanac.dark_twilight_day(eph, austin)
     times, events = almanac.find_discrete(t0, t1, f)
-    
+
     night_start = None
     night_end = None
-    
+
     for ti, event in zip(times, events):
         dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
         if event == 0 and night_start is None:
@@ -319,7 +313,7 @@ def find_proper_night_bounds(date_dt):
         elif event == 1 and night_start is not None and night_end is None:
             # Leaving Night (start of morning astronomical twilight)
             night_end = dt_local
-    
+
     return night_start, night_end
 
 def find_first_threshold(planet, start_dt, end_dt, threshold):
@@ -373,9 +367,9 @@ def get_weather():
     url = (
         "https://api.open-meteo.com/v1/forecast"
         "?latitude=30.2672&longitude=-97.7431"
-        "&current=temperature_2m,wind_speed_10m,wind_direction_10m"
-        "&hourly=wind_speed_10m"
+        "&current=temperature_2m"
         "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code"
+        "&hourly=wind_speed_10m"
         "&timezone=America%2FChicago"
         "&forecast_days=1"
         "&temperature_unit=fahrenheit"
@@ -394,6 +388,10 @@ def get_weather():
         rain = daily['precipitation_sum'][0]
         wcode = daily['weather_code'][0]
 
+        # Wind: scalar average of all hourly readings for the day
+        hourly_wind = data['hourly']['wind_speed_10m']
+        avg_wind = sum(hourly_wind) / len(hourly_wind) if hourly_wind else 0
+
         if rain == 0:
             rain_str = "0.00 inches expected"
         elif rain < 0.01:
@@ -405,27 +403,13 @@ def get_weather():
         if wcode in storm_codes and rain > 0:
             rain_str += " (thunderstorm-dependent; totals uncertain)"
 
-        # Current wind
-        current_wind_speed = data['current']['wind_speed_10m']
-        current_wind_dir = data['current']['wind_direction_10m']
-        current_wind_str = f"{current_wind_speed:.1f} mph from the {wind_direction(current_wind_dir)}"
-
-        # Daily average wind (scalar average of all hourly readings)
-        hourly_wind = data['hourly']['wind_speed_10m']
-        avg_wind = sum(hourly_wind) / len(hourly_wind) if hourly_wind else 0
-
-        # Windiness percent
-        wind_pct = ((avg_wind - WIND_MIN) / (WIND_MAX - WIND_MIN)) * 100
-
         return {
             'current': current,
             'high': high,
             'low': low,
             'rain_str': rain_str,
             'rain_raw': rain,
-            'current_wind': current_wind_str,
             'avg_wind': avg_wind,
-            'wind_pct': wind_pct,
         }
     except Exception as e:
         print(f"Weather fetch failed: {e}")
@@ -435,9 +419,7 @@ def get_weather():
             'low': 'N/A',
             'rain_str': 'Unable to fetch weather data',
             'rain_raw': 'N/A',
-            'current_wind': 'N/A',
             'avg_wind': 'N/A',
-            'wind_pct': 'N/A',
         }
 
 def send_ntfy_text(topic, message):
@@ -512,4 +494,154 @@ def main():
     # Twilight duration for today's 6:15 AM category
     twilight_start, twilight_end, twilight_cat_name = twilight_interval_for_time(today_615)
     twilight_duration_line = ""
-    if twilight_start and
+    if twilight_start and twilight_end:
+        twilight_duration_line = f"Today {twilight_cat_name.lower()} lasts from about {format_time(twilight_start)} to {format_time(twilight_end)}."
+
+    # Generate twilight chart
+    chart_path = "./twilight_chart.png"
+    chart_ready = False
+    try:
+        generate_twilight_chart(today, today_615, chart_path)
+        chart_ready = os.path.exists(chart_path)
+    except Exception as e:
+        print(f"Chart generation failed: {e}")
+
+    # Moon
+    moon_info = get_moon_info(today_615)
+
+    # Moon position at 6:15 AM
+    moon_alt, moon_az = planet_position(moon, today_615)
+    if moon_alt >= 0:
+        moon_pos_line = f"at 6:15 AM: {format_alt_dir(moon_alt, moon_az)}."
+    else:
+        next_rise = find_next_moonrise(today_615)
+        if next_rise:
+            moon_pos_line = f"at 6:15 AM: below the horizon, next rises at {format_time(next_rise)}."
+        else:
+            moon_pos_line = "at 6:15 AM: below the horizon."
+
+    # Planets
+    time_21 = make_austin_dt(today.year, today.month, today.day, 21, 0)
+    night_start, night_end = find_proper_night_bounds(today)
+
+    above_threshold_21 = []
+    reach_threshold_data = []  # (first_hit_time, formatted_string)
+    not_reach_names = []
+
+    for name, planet in PLANETS.items():
+        alt_21, az_21 = planet_position(planet, time_21)
+
+        if alt_21 >= ALTITUDE_THRESHOLD:
+            # Already above threshold at 9:00 PM — show actual position, then find when it sets
+            pos_21 = format_alt_dir(alt_21, az_21)
+            set_time = find_set_time(planet, time_21, night_end)
+            if set_time:
+                above_threshold_21.append(f"- {name}: {pos_21} at 9:00 PM, sets at {format_time(set_time)}")
+            else:
+                # Does not set overnight — report 6:15 AM position
+                alt_615, az_615 = planet_position(planet, today_615)
+                above_threshold_21.append(f"- {name}: {pos_21} at 9:00 PM, at 6:15 AM: {format_alt_dir(alt_615, az_615)}")
+            continue
+
+        # Not above threshold at 9:00 PM — check overnight
+        first_hit = find_first_threshold(planet, night_start, night_end, ALTITUDE_THRESHOLD)
+        if first_hit:
+            drop_time = find_drop_below_threshold(planet, first_hit, night_end, ALTITUDE_THRESHOLD)
+            if drop_time:
+                line = f"- {name}: {format_time(first_hit)} (drops below {ALTITUDE_THRESHOLD}° by {format_time(drop_time)})"
+            else:
+                # Still above threshold at end of night — report 6:15 AM altitude and direction
+                alt_615, az_615 = planet_position(planet, today_615)
+                line = f"- {name}: {format_time(first_hit)} (at 6:15 AM: {format_alt_dir(alt_615, az_615)})"
+            reach_threshold_data.append((first_hit, line))
+        else:
+            not_reach_names.append(name)
+
+    # Sort overnight risers by time they first reach threshold
+    reach_threshold_data.sort(key=lambda x: x[0])
+    reach_threshold_lines = [item[1] for item in reach_threshold_data]
+
+    # Weather
+    weather = get_weather()
+
+    # Calculated percentages
+    if weather['high'] != 'N/A' and weather['low'] != 'N/A':
+        avg_temp = (weather['high'] + weather['low']) / 2
+        day_temp_pct = ((avg_temp - DAY_TEMP_MIN) / (DAY_TEMP_MAX - DAY_TEMP_MIN)) * 100
+        day_temp_line = f"- Temperature percent: {day_temp_pct:.1f}%"
+    else:
+        day_temp_line = "- Temperature percent: N/A"
+
+    if weather['rain_raw'] != 'N/A':
+        rain_pct = (weather['rain_raw'] / RAIN_MAX) * 100
+        rain_pct_line = f"- Wetness percent: {rain_pct:.1f}%"
+    else:
+        rain_pct_line = "- Wetness percent: N/A"
+
+    # Wind lines
+    if weather['avg_wind'] != 'N/A':
+        wind_avg_line = f"- Average wind today: {weather['avg_wind']:.1f} mph"
+        wind_pct = ((weather['avg_wind'] - WIND_MIN) / (WIND_MAX - WIND_MIN)) * 100
+        wind_pct = min(100, max(0, wind_pct))
+        wind_pct_line = f"- Windiness percent: {wind_pct:.1f}%"
+    else:
+        wind_avg_line = "- Average wind today: N/A"
+        wind_pct_line = "- Windiness percent: N/A"
+
+    # Build report with explicit spacing
+    weekday = today.strftime("%A")
+    month_day = today.strftime("%B %-d")
+    year = today.year
+
+    report = f"## Austin Sky + Weather — {weekday}, {month_day}, {year}\n\n"
+    report += f"### Twilight at 6:15 AM\n\n"
+
+    if transition:
+        report += f"{transition}\n\n"
+
+    report += f"Today: {twilight_line(today_elev)}\n"
+    report += f"Yesterday: {twilight_line(yesterday_elev)}\n"
+    report += f"Tomorrow: {twilight_line(tomorrow_elev)}\n\n"
+
+    if twilight_duration_line:
+        report += f"{twilight_duration_line}\n\n"
+
+    report += f"### Moon\n\n"
+    report += f"{moon_info}\n"
+    report += f"{moon_pos_line}\n\n"
+    report += f"### Planets\n\n"
+
+    if above_threshold_21:
+        report += f"Above {ALTITUDE_THRESHOLD}° at 9:00 PM today:\n\n"
+        report += "\n".join(above_threshold_21) + "\n\n"
+
+    if reach_threshold_lines:
+        report += f"Reaches {ALTITUDE_THRESHOLD}° altitude during the night (not above {ALTITUDE_THRESHOLD}° at 9:00 PM):\n\n"
+        report += "\n".join(reach_threshold_lines) + "\n\n"
+
+    if not_reach_names:
+        report += f"Not above {ALTITUDE_THRESHOLD}° at 9:00 PM, and does not reach {ALTITUDE_THRESHOLD}° overnight:\n\n"
+        report += ", ".join(not_reach_names) + "\n\n"
+
+    report += f"### Weather\n\n"
+    report += f"- Current temperature: {weather['current']}°F\n"
+    report += f"- Expected high: {weather['high']}°F\n"
+    report += f"- Expected low: {weather['low']}°F\n"
+    report += f"{day_temp_line}\n"
+    report += f"- Rain: {weather['rain_str']}\n"
+    report += f"{rain_pct_line}\n"
+    report += f"{wind_avg_line}\n"
+    report += f"{wind_pct_line}\n\n"
+    report += f"Sources: Skyfield (JPL DE421 ephemeris), Open-Meteo"
+
+    print(report)
+
+    # Send text report
+    send_ntfy_text(NTFY_TOPIC, report)
+
+    # Send chart as separate image notification
+    if chart_ready:
+        send_ntfy_image(NTFY_TOPIC, chart_path, "Twilight at 6:15 AM")
+
+if __name__ == "__main__":
+    main()
