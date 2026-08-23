@@ -530,18 +530,6 @@ def thermal_event_annotation(doy, today_dt):
     best = min(annotations, key=lambda x: x[0])
     return f" — {best[1]}"
 
-def thermal_acceleration(doy):
-    """Return (pct, direction) for temperature acceleration.
-    0-100% scalar; direction is 'rising' or 'falling'.
-    """
-    omega = 2 * math.pi / 365.25
-    theta = omega * doy + THERMAL_PHASE
-    accel = -THERMAL_AMPLITUDE * (omega ** 2) * math.sin(theta)
-    max_accel = THERMAL_AMPLITUDE * (omega ** 2)
-    pct = abs(accel) / max_accel * 100
-    direction = "rising" if accel > 0 else "falling"
-    return pct, direction
-
 # ==================== INNER PLANET HELPERS ====================
 
 def find_sunrise_sunset(date_dt):
@@ -946,15 +934,12 @@ def main():
         wind_avg_line = "- Average wind today: N/A"
         wind_pct_line = "- Windiness percent: N/A"
 
-    # Thermal solstice and acceleration
+    # Thermal solstice
     doy = now.timetuple().tm_yday
     thermal_pct = thermal_solstice_pct(doy)
     thermal_trend = "cooling" if thermal_pct > 0 else "warming"
     thermal_anno = thermal_event_annotation(doy, now)
     thermal_line = f"- Avg. thermal solstice: {thermal_pct:+.0f}% ({thermal_trend}){thermal_anno}"
-    
-    accel_pct, accel_dir = thermal_acceleration(doy)
-    accel_line = f"- Avg. temp. acceleration: {accel_pct:.0f}% {accel_dir}"
 
     # Build report with explicit spacing
     weekday = today.strftime("%A")
@@ -1005,7 +990,6 @@ def main():
     report += f"- Expected low: {weather['low']}°F\n"
     report += f"{day_temp_line}\n"
     report += f"{thermal_line}\n"
-    report += f"{accel_line}\n"
     report += f"- Rain: {weather['rain_str']}\n"
     report += f"{rain_pct_line}\n"
     report += f"{wind_avg_line}\n"
