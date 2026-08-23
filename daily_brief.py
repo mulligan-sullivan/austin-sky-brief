@@ -917,7 +917,7 @@ def main():
     # Inner planets (Mercury & Venus)
     inner_planet_data = {}
     for name, planet in INNER_PLANETS.items():
-        inner_planet_data[name] = inner_planet_status(name, planet, today)
+        inner_planet_data[name] = inner_planet_status(name, planet, now)
 
     # Weather
     weather = get_weather()
