@@ -370,6 +370,21 @@ def find_set_time(planet, start_dt, end_dt):
         current += step
     return None
 
+def find_rise_time(planet, start_dt, end_dt):
+    """Find when planet first rises above horizon (alt >= 0) between start_dt and end_dt."""
+    if start_dt is None or end_dt is None or start_dt >= end_dt:
+        return None
+    current = start_dt
+    step = timedelta(minutes=2)
+    prev_alt = None
+    while current <= end_dt:
+        alt, az = planet_position(planet, current)
+        if prev_alt is not None and prev_alt < 0 and alt >= 0:
+            return current
+        prev_alt = alt
+        current += step
+    return None
+
 def format_time(dt):
     hour = dt.hour
     minute = dt.minute
@@ -709,7 +724,11 @@ def inner_planet_status(name, planet, today_dt):
             if sunset:
                 alt, az = planet_position(planet, sunset)
                 if alt >= 0:
-                    status = f"evening star, {alt:.0f}° at sunset ({format_time(sunset)})"
+                    planet_set = find_set_time(planet, sunset, sunset + timedelta(hours=12))
+                    if planet_set:
+                        status = f"evening star, {alt:.0f}° at sunset (sets {format_time(planet_set)})"
+                    else:
+                        status = f"evening star, {alt:.0f}° at sunset"
                 else:
                     status = f"evening star, below horizon at sunset"
             else:
@@ -719,7 +738,11 @@ def inner_planet_status(name, planet, today_dt):
             if sunrise:
                 alt, az = planet_position(planet, sunrise)
                 if alt >= 0:
-                    status = f"morning star, {alt:.0f}° at sunrise ({format_time(sunrise)})"
+                    planet_rise = find_rise_time(planet, sunrise - timedelta(hours=12), sunrise)
+                    if planet_rise:
+                        status = f"morning star, {alt:.0f}° at sunrise (rises {format_time(planet_rise)})"
+                    else:
+                        status = f"morning star, {alt:.0f}° at sunrise"
                 else:
                     status = f"morning star, below horizon at sunrise"
             else:
