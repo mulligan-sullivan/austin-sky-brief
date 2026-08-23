@@ -40,6 +40,19 @@ RAIN_MAX = 0.653
 WIND_MIN = 2.64
 WIND_MAX = 18.37
 
+# Thermal solstice parameters from 10-year Austin climatology (2015-2024)
+# Fitted: T(doy) = 15.98 * sin(2π·doy/365.25 - 1.972) + 71.06
+THERMAL_AMPLITUDE = 15.98
+THERMAL_MEAN = 71.06
+THERMAL_PHASE = -1.972  # radians
+
+THERMAL_EVENTS_CAL = [
+    (1, 23, "coldness solstice"),
+    (4, 24, "spring equinox"),
+    (7, 24, "heat solstice"),
+    (10, 23, "autumn equinox"),
+]
+
 # ==================== SKYFIELD SETUP ====================
 load = Loader('./skyfield_data')
 eph = load('de421.bsp')
@@ -454,6 +467,127 @@ def send_ntfy_image(topic, image_path, title):
     except Exception as e:
         print(f"Failed to send image: {e}")
 
+# ==================== THERMAL HELPERS ====================
+
+def thermal_solstice_pct(doy):
+    """Return thermal solstice percentage for a given day-of-year.
+    +100% = thermal summer solstice (~July 24)
+    0%    = thermal equinoxes (~Apr 24, ~Oct 23)
+    -100% = thermal winter solstice (~Jan 23)
+    """
+    pct = math.sin(2 * math.pi * doy / 365.25 + THERMAL_PHASE) * 100
+    return pct
+
+def thermal_event_annotation(doy, today_dt):
+    """Return proximity annotation for the closest thermal event, if any."""
+    annotations = []
+    today_month = today_dt.month
+    today_day = today_dt.day
+
+    for event_month, event_day, name in THERMAL_EVENTS_CAL:
+        # Calendar "a month from today" — exact same calendar day, previous month
+        month_before = event_month - 1
+        if month_before == 0:
+            month_before = 12
+        if today_month == month_before and today_day == event_day:
+            annotations.append((0, f"{name} a month from today"))
+            continue  # Skip distance check for this event
+
+        # DOY distance-based checks
+        event_doy = datetime(2024, event_month, event_day).timetuple().tm_yday
+        days_until = event_doy - doy
+        if days_until < 0:
+            days_until += 365.25
+        days_since = doy - event_doy
+        if days_since < 0:
+            days_since += 365.25
+
+        du = round(days_until)
+        ds = round(days_since)
+
+        if du == 0:
+            annotations.append((0, name))
+        elif du == 1:
+            annotations.append((1, f"{name} tomorrow"))
+        elif 2 <= du <= 7:
+            annotations.append((du, f"{name} this week"))
+        elif 8 <= du <= 14:
+            annotations.append((du, f"{name} next week"))
+        elif 15 <= du <= 21:
+            annotations.append((du, f"{name} two weeks away"))
+
+        if ds == 1:
+            annotations.append((ds, f"{name} yesterday"))
+        elif 2 <= ds <= 7:
+            annotations.append((ds, f"{name} in the past week"))
+
+    if not annotations:
+        return ""
+
+    best = min(annotations, key=lambda x: x[0])
+    return f" — {best[1]}"
+
+def thermal_acceleration(doy):
+    """Return (pct, direction) for temperature acceleration.
+    0-100% scalar; direction is 'rising' or 'falling'.
+    """
+    omega = 2 * math.pi / 365.25
+    theta = omega * doy + THERMAL_PHASE
+    accel = -THERMAL_AMPLITUDE * (omega ** 2) * math.sin(theta)
+    max_accel = THERMAL_AMPLITUDE * (omega ** 2)
+    pct = abs(accel) / max_accel * 100
+    direction = "rising" if accel > 0 else "falling"
+    return pct, direction
+
+# ==================== MERCURY & VENUS HELPERS ====================
+
+def find_sunrise_sunset(date_dt):
+    """Find sunrise and sunset times for the given date."""
+    noon = datetime(date_dt.year, date_dt.month, date_dt.day, 12, 0, tzinfo=TZ)
+    t0 = ts.from_datetime(noon - timedelta(hours=14))
+    t1 = ts.from_datetime(noon + timedelta(hours=14))
+
+    f = almanac.sunrise_sunset(eph, austin)
+    times, events = almanac.find_discrete(t0, t1, f)
+
+    sunrise = None
+    sunset = None
+    for ti, event in zip(times, events):
+        dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
+        if event == 1 and sunrise is None:
+            sunrise = dt_local
+        elif event == 0 and sunset is None:
+            sunset = dt_local
+
+    return sunrise, sunset
+
+def get_mercury_venus_status(date_dt):
+    """Return morning/evening star status for Mercury and Venus."""
+    results = {}
+    sunrise, sunset = find_sunrise_sunset(date_dt)
+
+    for name, planet in [('Mercury', PLANETS['Mercury']), ('Venus', PLANETS['Venus'])]:
+        status = None
+
+        # Check at sunset first (evening star candidate)
+        if sunset:
+            alt, az = planet_position(planet, sunset)
+            if alt >= 0:
+                status = f"evening star, {alt:.0f}° at sunset"
+
+        # If not evening star, check at sunrise (morning star candidate)
+        if status is None and sunrise:
+            alt, az = planet_position(planet, sunrise)
+            if alt >= 0:
+                status = f"morning star, {alt:.0f}° at sunrise"
+
+        if status is None:
+            status = "not visible at sunrise or sunset"
+
+        results[name] = status
+
+    return results
+
 # ==================== MAIN ====================
 
 def main():
@@ -526,9 +660,16 @@ def main():
 
     above_threshold_21 = []
     reach_threshold_data = []  # (first_hit_time, formatted_string)
-    not_reach_names = []
+    not_reach_items = []
+
+    # Mercury & Venus morning/evening star status
+    mercury_venus_status = get_mercury_venus_status(today)
 
     for name, planet in PLANETS.items():
+        star_note = ""
+        if name in ('Mercury', 'Venus'):
+            star_note = f" ({mercury_venus_status[name]})"
+
         alt_21, az_21 = planet_position(planet, time_21)
 
         if alt_21 >= ALTITUDE_THRESHOLD:
@@ -536,11 +677,11 @@ def main():
             pos_21 = format_alt_dir(alt_21, az_21)
             set_time = find_set_time(planet, time_21, night_end)
             if set_time:
-                above_threshold_21.append(f"- {name}: {pos_21} at 9:00 PM, sets at {format_time(set_time)}")
+                above_threshold_21.append(f"- {name}: {pos_21} at 9:00 PM, sets at {format_time(set_time)}{star_note}")
             else:
                 # Does not set overnight — report 6:15 AM position
                 alt_615, az_615 = planet_position(planet, today_615)
-                above_threshold_21.append(f"- {name}: {pos_21} at 9:00 PM, at 6:15 AM: {format_alt_dir(alt_615, az_615)}")
+                above_threshold_21.append(f"- {name}: {pos_21} at 9:00 PM, at 6:15 AM: {format_alt_dir(alt_615, az_615)}{star_note}")
             continue
 
         # Not above threshold at 9:00 PM — check overnight
@@ -548,14 +689,17 @@ def main():
         if first_hit:
             drop_time = find_drop_below_threshold(planet, first_hit, night_end, ALTITUDE_THRESHOLD)
             if drop_time:
-                line = f"- {name}: {format_time(first_hit)} (drops below {ALTITUDE_THRESHOLD}° by {format_time(drop_time)})"
+                line = f"- {name}: {format_time(first_hit)} (drops below {ALTITUDE_THRESHOLD}° by {format_time(drop_time)}){star_note}"
             else:
                 # Still above threshold at end of night — report 6:15 AM altitude and direction
                 alt_615, az_615 = planet_position(planet, today_615)
-                line = f"- {name}: {format_time(first_hit)} (at 6:15 AM: {format_alt_dir(alt_615, az_615)})"
+                line = f"- {name}: {format_time(first_hit)} (at 6:15 AM: {format_alt_dir(alt_615, az_615)}){star_note}"
             reach_threshold_data.append((first_hit, line))
         else:
-            not_reach_names.append(name)
+            if name in ('Mercury', 'Venus'):
+                not_reach_items.append(f"{name} ({mercury_venus_status[name]})")
+            else:
+                not_reach_items.append(name)
 
     # Sort overnight risers by time they first reach threshold
     reach_threshold_data.sort(key=lambda x: x[0])
@@ -588,6 +732,16 @@ def main():
         wind_avg_line = "- Average wind today: N/A"
         wind_pct_line = "- Windiness percent: N/A"
 
+    # Thermal solstice and acceleration
+    doy = now.timetuple().tm_yday
+    thermal_pct = thermal_solstice_pct(doy)
+    thermal_trend = "cooling" if thermal_pct > 0 else "warming"
+    thermal_anno = thermal_event_annotation(doy, now)
+    thermal_line = f"- Thermal solstice: {thermal_pct:+.0f}% ({thermal_trend}){thermal_anno}"
+
+    accel_pct, accel_dir = thermal_acceleration(doy)
+    accel_line = f"- Temperature acceleration: {accel_pct:.0f}% {accel_dir}"
+
     # Build report with explicit spacing
     weekday = today.strftime("%A")
     month_day = today.strftime("%B %-d")
@@ -619,15 +773,17 @@ def main():
         report += f"Reaches {ALTITUDE_THRESHOLD}° altitude during the night (not above {ALTITUDE_THRESHOLD}° at 9:00 PM):\n\n"
         report += "\n".join(reach_threshold_lines) + "\n\n"
 
-    if not_reach_names:
+    if not_reach_items:
         report += f"Not above {ALTITUDE_THRESHOLD}° at 9:00 PM, and does not reach {ALTITUDE_THRESHOLD}° overnight:\n\n"
-        report += ", ".join(not_reach_names) + "\n\n"
+        report += ", ".join(not_reach_items) + "\n\n"
 
     report += f"### Weather\n\n"
     report += f"- Current temperature: {weather['current']}°F\n"
     report += f"- Expected high: {weather['high']}°F\n"
     report += f"- Expected low: {weather['low']}°F\n"
     report += f"{day_temp_line}\n"
+    report += f"{thermal_line}\n"
+    report += f"{accel_line}\n"
     report += f"- Rain: {weather['rain_str']}\n"
     report += f"{rain_pct_line}\n"
     report += f"{wind_avg_line}\n"
