@@ -65,13 +65,16 @@ austin = wgs84.latlon(LAT, LON, elevation_m=ELEVATION_M)
 observer = earth + austin
 
 PLANETS = {
-    'Mercury': eph['mercury'],
-    'Venus': eph['venus'],
     'Mars': eph['mars'],
     'Jupiter': eph['jupiter barycenter'],
     'Saturn': eph['saturn barycenter'],
     'Uranus': eph['uranus barycenter'],
     'Neptune': eph['neptune barycenter'],
+}
+
+INNER_PLANETS = {
+    'Mercury': eph['mercury'],
+    'Venus': eph['venus'],
 }
 
 # ==================== HELPERS ====================
@@ -121,15 +124,15 @@ def twilight_interval_for_time(target_dt):
     """Return (start, end, category_name) for the twilight interval containing target_dt."""
     noon_prev = datetime(target_dt.year, target_dt.month, target_dt.day, 12, 0, tzinfo=TZ) - timedelta(days=1)
     noon_next = datetime(target_dt.year, target_dt.month, target_dt.day, 12, 0, tzinfo=TZ) + timedelta(days=1)
-
+    
     t0 = ts.from_datetime(noon_prev)
     t1 = ts.from_datetime(noon_next)
-
+    
     f = almanac.dark_twilight_day(eph, austin)
     times, events = almanac.find_discrete(t0, t1, f)
-
+    
     phase_at_start = int(f(t0))
-
+    
     category_names = {
         0: "Night",
         1: "Astronomical twilight",
@@ -137,37 +140,37 @@ def twilight_interval_for_time(target_dt):
         3: "Civil twilight",
         4: "Daylight",
     }
-
+    
     intervals = []
     current_start = t0.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
     current_phase = phase_at_start
-
+    
     for ti, event in zip(times, events):
         dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
         intervals.append((current_start, dt_local, category_names[current_phase]))
         current_start = dt_local
         current_phase = int(event)
-
+    
     end_search = t1.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
     intervals.append((current_start, end_search, category_names[current_phase]))
-
+    
     for start, end, cat in intervals:
         if start <= target_dt < end:
             return start, end, cat
-
+    
     return None, None, "Unknown"
 
 def generate_twilight_chart(date_dt, target_dt, filename):
     """Generate a 2-hour twilight timeline chart centered on target_dt."""
     window_start = target_dt - timedelta(hours=1)
     window_end = target_dt + timedelta(hours=1)
-
+    
     t0 = ts.from_datetime(window_start - timedelta(hours=3))
     t1 = ts.from_datetime(window_end + timedelta(hours=3))
-
+    
     f = almanac.dark_twilight_day(eph, austin)
     times, events = almanac.find_discrete(t0, t1, f)
-
+    
     category_names = {
         0: "Night",
         1: "Astronomical twilight",
@@ -175,7 +178,7 @@ def generate_twilight_chart(date_dt, target_dt, filename):
         3: "Civil twilight",
         4: "Daylight",
     }
-
+    
     colors = {
         "Night": "#0a1519",
         "Astronomical twilight": "#1a3a4a",
@@ -183,68 +186,68 @@ def generate_twilight_chart(date_dt, target_dt, filename):
         "Civil twilight": "#5ab4d4",
         "Daylight": "#a8d8e8",
     }
-
+    
     intervals = []
     current_start = t0.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
     current_phase = int(f(t0))
-
+    
     for ti, event in zip(times, events):
         dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
         intervals.append((current_start, dt_local, category_names[current_phase]))
         current_start = dt_local
         current_phase = int(event)
-
+    
     end_search = t1.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
     intervals.append((current_start, end_search, category_names[current_phase]))
-
+    
     fig, ax = plt.subplots(figsize=(6, 1.0), dpi=150)
-
+    
     total_seconds = (window_end - window_start).total_seconds()
-
+    
     for start, end, cat in intervals:
         s = max(start, window_start)
         e = min(end, window_end)
         if s >= e:
             continue
-
+        
         left = (s - window_start).total_seconds() / total_seconds
         width = (e - s).total_seconds() / total_seconds
-
+        
         rect = patches.FancyBboxPatch(
             (left, 0.35), width, 0.3,
             boxstyle="round,pad=0.005",
             facecolor=colors[cat], edgecolor='none'
         )
         ax.add_patch(rect)
-
+        
         if width > 0.10:
             text_color = 'white' if cat in ['Night', 'Astronomical twilight', 'Nautical twilight'] else '#1a3a4a'
             short_name = cat.replace(' twilight', '').replace('Astronomical', 'Astro')
             ax.text(left + width/2, 0.5, short_name,
                    ha='center', va='center', fontsize=6, color=text_color, fontweight='bold')
-
+    
     # 6:15 AM marker — solid black line
     target_left = (target_dt - window_start).total_seconds() / total_seconds
     ax.axvline(x=target_left, color='black', linewidth=2.5, linestyle='-', zorder=5)
-
+    
     # Time labels every 30 minutes
     tick_times = []
     t = window_start
     while t <= window_end:
         tick_times.append(t)
         t += timedelta(minutes=30)
-
+    
     tick_positions = [(t - window_start).total_seconds() / total_seconds for t in tick_times]
     tick_labels = [t.strftime('%-I:%M') for t in tick_times]
-
+    
     ax.set_xticks(tick_positions)
     ax.set_xticklabels(tick_labels, fontsize=7, color='#888888')
     ax.tick_params(axis='x', length=0, pad=2)
-
+    
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis('off')
-
+    
     plt.tight_layout(pad=0.3)
     plt.savefig(filename, dpi=150, bbox_inches='tight', facecolor='white', edgecolor='none', pad_inches=0.05)
     plt.close()
@@ -290,10 +293,10 @@ def find_next_moonrise(start_dt):
     """Find next moonrise after start_dt."""
     t0 = ts.from_datetime(start_dt)
     t1 = ts.from_datetime(start_dt + timedelta(days=2))
-
+    
     f = almanac.risings_and_settings(eph, moon, austin)
     times, events = almanac.find_discrete(t0, t1, f)
-
+    
     for ti, event in zip(times, events):
         if event == 1:  # 1 = rising
             dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
@@ -311,13 +314,13 @@ def find_proper_night_bounds(date_dt):
     noon = datetime(date_dt.year, date_dt.month, date_dt.day, 12, 0, tzinfo=TZ)
     t0 = ts.from_datetime(noon)
     t1 = ts.from_datetime(noon + timedelta(days=1))
-
+    
     f = almanac.dark_twilight_day(eph, austin)
     times, events = almanac.find_discrete(t0, t1, f)
-
+    
     night_start = None
     night_end = None
-
+    
     for ti, event in zip(times, events):
         dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
         if event == 0 and night_start is None:
@@ -326,7 +329,7 @@ def find_proper_night_bounds(date_dt):
         elif event == 1 and night_start is not None and night_end is None:
             # Leaving Night (start of morning astronomical twilight)
             night_end = dt_local
-
+    
     return night_start, night_end
 
 def find_first_threshold(planet, start_dt, end_dt, threshold):
@@ -483,7 +486,7 @@ def thermal_event_annotation(doy, today_dt):
     annotations = []
     today_month = today_dt.month
     today_day = today_dt.day
-
+    
     for event_month, event_day, name in THERMAL_EVENTS_CAL:
         # Calendar "a month from today" — exact same calendar day, previous month
         month_before = event_month - 1
@@ -491,8 +494,8 @@ def thermal_event_annotation(doy, today_dt):
             month_before = 12
         if today_month == month_before and today_day == event_day:
             annotations.append((0, f"{name} a month from today"))
-            continue  # Skip distance check for this event
-
+            continue
+        
         # DOY distance-based checks
         event_doy = datetime(2024, event_month, event_day).timetuple().tm_yday
         days_until = event_doy - doy
@@ -501,10 +504,10 @@ def thermal_event_annotation(doy, today_dt):
         days_since = doy - event_doy
         if days_since < 0:
             days_since += 365.25
-
+        
         du = round(days_until)
         ds = round(days_since)
-
+        
         if du == 0:
             annotations.append((0, name))
         elif du == 1:
@@ -515,15 +518,15 @@ def thermal_event_annotation(doy, today_dt):
             annotations.append((du, f"{name} next week"))
         elif 15 <= du <= 21:
             annotations.append((du, f"{name} two weeks away"))
-
+        
         if ds == 1:
             annotations.append((ds, f"{name} yesterday"))
         elif 2 <= ds <= 7:
             annotations.append((ds, f"{name} in the past week"))
-
+    
     if not annotations:
         return ""
-
+    
     best = min(annotations, key=lambda x: x[0])
     return f" — {best[1]}"
 
@@ -539,17 +542,17 @@ def thermal_acceleration(doy):
     direction = "rising" if accel > 0 else "falling"
     return pct, direction
 
-# ==================== MERCURY & VENUS HELPERS ====================
+# ==================== INNER PLANET HELPERS ====================
 
 def find_sunrise_sunset(date_dt):
     """Find sunrise and sunset times for the given date."""
     noon = datetime(date_dt.year, date_dt.month, date_dt.day, 12, 0, tzinfo=TZ)
     t0 = ts.from_datetime(noon - timedelta(hours=14))
     t1 = ts.from_datetime(noon + timedelta(hours=14))
-
+    
     f = almanac.sunrise_sunset(eph, austin)
     times, events = almanac.find_discrete(t0, t1, f)
-
+    
     sunrise = None
     sunset = None
     for ti, event in zip(times, events):
@@ -558,35 +561,251 @@ def find_sunrise_sunset(date_dt):
             sunrise = dt_local
         elif event == 0 and sunset is None:
             sunset = dt_local
-
+    
     return sunrise, sunset
 
-def get_mercury_venus_status(date_dt):
-    """Return morning/evening star status for Mercury and Venus."""
-    results = {}
-    sunrise, sunset = find_sunrise_sunset(date_dt)
+def elongation_at(dt, planet):
+    """Return angular separation (degrees) between planet and Sun at dt."""
+    t = ts.from_datetime(dt)
+    sun_app = observer.at(t).observe(sun).apparent()
+    planet_app = observer.at(t).observe(planet).apparent()
+    return sun_app.separation_from(planet_app).degrees
 
-    for name, planet in [('Mercury', PLANETS['Mercury']), ('Venus', PLANETS['Venus'])]:
-        status = None
+def find_inner_planet_events(planet, start_dt, days=730):
+    """
+    Find greatest elongations and conjunctions for an inner planet
+    over a ~2-year window. Returns list of (dt, event_type, detail).
+    """
+    events = []
+    
+    # Sample every 6 hours for precision
+    samples = []
+    current = start_dt
+    end = start_dt + timedelta(days=days)
+    while current <= end:
+        samples.append((current, elongation_at(current, planet)))
+        current += timedelta(hours=6)
+    
+    # Find extrema
+    for i in range(2, len(samples) - 2):
+        prev_elong = samples[i-1][1]
+        curr_elong = samples[i][1]
+        next_elong = samples[i+1][1]
+        
+        # Local maximum = greatest elongation
+        if curr_elong > prev_elong and curr_elong > next_elong and curr_elong > 15:
+            refine_start = samples[i-1][0]
+            refine_end = samples[i+1][0]
+            best_dt, best_elong = _refine_extremum(planet, refine_start, refine_end, find_max=True)
+            
+            # Determine east vs west by checking position relative to Sun
+            t = ts.from_datetime(best_dt)
+            sun_app = observer.at(t).observe(sun).apparent()
+            planet_app = observer.at(t).observe(planet).apparent()
+            sun_lon = sun_app.ecliptic_latlon(epoch=None)[1].degrees
+            planet_lon = planet_app.ecliptic_latlon(epoch=None)[1].degrees
+            diff = (planet_lon - sun_lon + 180) % 360 - 180
+            
+            if diff > 0:
+                # East of Sun = evening star
+                events.append((best_dt, "evening_star_max", "evening star, max elongation"))
+            else:
+                # West of Sun = morning star
+                events.append((best_dt, "morning_star_max", "morning star, max elongation"))
+        
+        # Local minimum = conjunction
+        elif curr_elong < prev_elong and curr_elong < next_elong and curr_elong < 5:
+            refine_start = samples[i-1][0]
+            refine_end = samples[i+1][0]
+            best_dt, best_elong = _refine_extremum(planet, refine_start, refine_end, find_max=False)
+            
+            # Classify as superior or inferior
+            after_dt = best_dt + timedelta(days=5)
+            t_after = ts.from_datetime(after_dt)
+            sun_app = observer.at(t_after).observe(sun).apparent()
+            planet_app = observer.at(t_after).observe(planet).apparent()
+            sun_lon = sun_app.ecliptic_latlon(epoch=None)[1].degrees
+            planet_lon = planet_app.ecliptic_latlon(epoch=None)[1].degrees
+            diff = (planet_lon - sun_lon + 180) % 360 - 180
+            
+            if diff > 0:
+                # Becoming evening star → this was superior conjunction
+                events.append((best_dt, "superior_conjunction", "superior conjunction"))
+            else:
+                # Becoming morning star → this was inferior conjunction
+                events.append((best_dt, "inferior_conjunction", "inferior conjunction"))
+    
+    # Remove duplicates and sort
+    seen = set()
+    unique = []
+    for e in sorted(events, key=lambda x: x[0]):
+        key = (e[0].strftime('%Y-%m-%d'), e[1])
+        if key not in seen:
+            seen.add(key)
+            unique.append(e)
+    
+    return unique
 
-        # Check at sunset first (evening star candidate)
-        if sunset:
-            alt, az = planet_position(planet, sunset)
-            if alt >= 0:
-                status = f"evening star, {alt:.0f}° at sunset"
+def _refine_extremum(planet, start_dt, end_dt, find_max=True):
+    """Refine an extremum by binary search."""
+    best_dt = start_dt
+    best_val = elongation_at(start_dt, planet)
+    
+    current = start_dt
+    while current <= end_dt:
+        val = elongation_at(current, planet)
+        if find_max:
+            if val > best_val:
+                best_val = val
+                best_dt = current
+        else:
+            if val < best_val:
+                best_val = val
+                best_dt = current
+        current += timedelta(hours=1)
+    
+    return best_dt, best_val
 
-        # If not evening star, check at sunrise (morning star candidate)
-        if status is None and sunrise:
-            alt, az = planet_position(planet, sunrise)
-            if alt >= 0:
-                status = f"morning star, {alt:.0f}° at sunrise"
+def inner_planet_status(name, planet, today_dt):
+    """
+    Return current status info for Mercury or Venus.
+    Returns dict with: status, events
+    """
+    # Find events in a 2-year window
+    events = find_inner_planet_events(planet, today_dt - timedelta(days=365), days=730)
+    
+    # All events get notifications (both conjunctions + both max elongations)
+    notify_events = [(dt, etype, detail) for dt, etype, detail in events 
+                     if etype in ('superior_conjunction', 'inferior_conjunction', 
+                                  'evening_star_max', 'morning_star_max')]
+    
+    # Determine current phase
+    today_elong = elongation_at(today_dt, planet)
+    
+    # Check if near any conjunction (elongation < 10° and within 30 days)
+    in_conjunction = False
+    conj_end = None
+    next_phase = None
+    conj_type = None
+    
+    for dt, etype, detail in events:
+        if etype in ('superior_conjunction', 'inferior_conjunction'):
+            days_diff = abs((today_dt - dt).total_seconds() / 86400)
+            if days_diff < 30 and today_elong < 10:
+                in_conjunction = True
+                conj_type = detail
+                # Find what comes next after this conjunction
+                for dt2, etype2, detail2 in events:
+                    if dt2 > dt and etype2 in ('evening_star_max', 'morning_star_max'):
+                        conj_end = dt2
+                        next_phase = detail2.split(',')[0]  # "evening star" or "morning star"
+                        break
+                break
+    
+    sunrise, sunset = find_sunrise_sunset(today_dt)
+    
+    if in_conjunction and conj_end:
+        end_str = conj_end.strftime("%B %-d")
+        status = f"{conj_type} until ~{end_str}, then {next_phase}"
+    else:
+        # Check if evening or morning star
+        t = ts.from_datetime(today_dt)
+        sun_app = observer.at(t).observe(sun).apparent()
+        planet_app = observer.at(t).observe(planet).apparent()
+        sun_lon = sun_app.ecliptic_latlon(epoch=None)[1].degrees
+        planet_lon = planet_app.ecliptic_latlon(epoch=None)[1].degrees
+        diff = (planet_lon - sun_lon + 180) % 360 - 180
+        
+        if diff > 0:
+            # East of Sun = evening star
+            if sunset:
+                alt, az = planet_position(planet, sunset)
+                if alt >= 0:
+                    status = f"evening star, {alt:.0f}° at sunset ({format_time(sunset)})"
+                else:
+                    status = f"evening star, below horizon at sunset"
+            else:
+                status = "evening star"
+        else:
+            # West of Sun = morning star
+            if sunrise:
+                alt, az = planet_position(planet, sunrise)
+                if alt >= 0:
+                    status = f"morning star, {alt:.0f}° at sunrise ({format_time(sunrise)})"
+                else:
+                    status = f"morning star, below horizon at sunrise"
+            else:
+                status = "morning star"
+    
+    return {
+        'status': status,
+        'events': notify_events,
+    }
 
-        if status is None:
-            status = "not visible at sunrise or sunset"
-
-        results[name] = status
-
-    return results
+def inner_planet_event_annotation(name, today_dt, events):
+    """Return proximity annotation for inner planet events.
+    Mercury: in 3 days, in 2 days, tomorrow, today | yesterday
+    Venus: full schedule like thermal
+    """
+    annotations = []
+    today_month = today_dt.month
+    today_day = today_dt.day
+    
+    for event_dt, etype, detail in events:
+        event_month = event_dt.month
+        event_day = event_dt.day
+        
+        days_until = (event_dt - today_dt).total_seconds() / 86400
+        days_since = (today_dt - event_dt).total_seconds() / 86400
+        
+        du = round(days_until)
+        ds = round(days_since)
+        
+        if name == 'Mercury':
+            # Mercury: tight window
+            if du == 0:
+                annotations.append((0, detail))
+            elif du == 1:
+                annotations.append((1, f"{detail} tomorrow"))
+            elif du == 2:
+                annotations.append((2, f"{detail} in 2 days"))
+            elif du == 3:
+                annotations.append((3, f"{detail} in 3 days"))
+            
+            if ds == 1:
+                annotations.append((ds, f"end of {detail} yesterday"))
+        
+        else:
+            # Venus: full schedule
+            # Calendar "a month from today"
+            month_before = event_month - 1
+            if month_before == 0:
+                month_before = 12
+            if today_month == month_before and today_day == event_day:
+                annotations.append((0, f"{detail} a month from today"))
+                continue
+            
+            if du == 0:
+                annotations.append((0, detail))
+            elif du == 1:
+                annotations.append((1, f"{detail} tomorrow"))
+            elif 2 <= du <= 7:
+                annotations.append((du, f"{detail} this week"))
+            elif 8 <= du <= 14:
+                annotations.append((du, f"{detail} next week"))
+            elif 15 <= du <= 21:
+                annotations.append((du, f"{detail} two weeks away"))
+            
+            if ds == 1:
+                annotations.append((ds, f"end of {detail} yesterday"))
+            elif 2 <= ds <= 7:
+                annotations.append((ds, f"end of {detail} in the past week"))
+    
+    if not annotations:
+        return ""
+    
+    best = min(annotations, key=lambda x: x[0])
+    return f" — {best[1]}"
 
 # ==================== MAIN ====================
 
@@ -642,7 +861,7 @@ def main():
 
     # Moon
     moon_info = get_moon_info(today_615)
-
+    
     # Moon position at 6:15 AM
     moon_alt, moon_az = planet_position(moon, today_615)
     if moon_alt >= 0:
@@ -654,56 +873,51 @@ def main():
         else:
             moon_pos_line = "at 6:15 AM: below the horizon."
 
-    # Planets
+    # Planets (outer only — Mercury and Venus handled separately)
     time_21 = make_austin_dt(today.year, today.month, today.day, 21, 0)
     night_start, night_end = find_proper_night_bounds(today)
 
     above_threshold_21 = []
     reach_threshold_data = []  # (first_hit_time, formatted_string)
-    not_reach_items = []
-
-    # Mercury & Venus morning/evening star status
-    mercury_venus_status = get_mercury_venus_status(today)
+    not_reach_names = []
 
     for name, planet in PLANETS.items():
-        star_note = ""
-        if name in ('Mercury', 'Venus'):
-            star_note = f" ({mercury_venus_status[name]})"
-
         alt_21, az_21 = planet_position(planet, time_21)
-
+        
         if alt_21 >= ALTITUDE_THRESHOLD:
             # Already above threshold at 9:00 PM — show actual position, then find when it sets
             pos_21 = format_alt_dir(alt_21, az_21)
             set_time = find_set_time(planet, time_21, night_end)
             if set_time:
-                above_threshold_21.append(f"- {name}: {pos_21} at 9:00 PM, sets at {format_time(set_time)}{star_note}")
+                above_threshold_21.append(f"- {name}: {pos_21} at 9:00 PM, sets at {format_time(set_time)}")
             else:
                 # Does not set overnight — report 6:15 AM position
                 alt_615, az_615 = planet_position(planet, today_615)
-                above_threshold_21.append(f"- {name}: {pos_21} at 9:00 PM, at 6:15 AM: {format_alt_dir(alt_615, az_615)}{star_note}")
+                above_threshold_21.append(f"- {name}: {pos_21} at 9:00 PM, at 6:15 AM: {format_alt_dir(alt_615, az_615)}")
             continue
-
+        
         # Not above threshold at 9:00 PM — check overnight
         first_hit = find_first_threshold(planet, night_start, night_end, ALTITUDE_THRESHOLD)
         if first_hit:
             drop_time = find_drop_below_threshold(planet, first_hit, night_end, ALTITUDE_THRESHOLD)
             if drop_time:
-                line = f"- {name}: {format_time(first_hit)} (drops below {ALTITUDE_THRESHOLD}° by {format_time(drop_time)}){star_note}"
+                line = f"- {name}: {format_time(first_hit)} (drops below {ALTITUDE_THRESHOLD}° by {format_time(drop_time)})"
             else:
                 # Still above threshold at end of night — report 6:15 AM altitude and direction
                 alt_615, az_615 = planet_position(planet, today_615)
-                line = f"- {name}: {format_time(first_hit)} (at 6:15 AM: {format_alt_dir(alt_615, az_615)}){star_note}"
+                line = f"- {name}: {format_time(first_hit)} (at 6:15 AM: {format_alt_dir(alt_615, az_615)})"
             reach_threshold_data.append((first_hit, line))
         else:
-            if name in ('Mercury', 'Venus'):
-                not_reach_items.append(f"{name} ({mercury_venus_status[name]})")
-            else:
-                not_reach_items.append(name)
+            not_reach_names.append(name)
 
     # Sort overnight risers by time they first reach threshold
     reach_threshold_data.sort(key=lambda x: x[0])
     reach_threshold_lines = [item[1] for item in reach_threshold_data]
+
+    # Inner planets (Mercury & Venus)
+    inner_planet_data = {}
+    for name, planet in INNER_PLANETS.items():
+        inner_planet_data[name] = inner_planet_status(name, planet, today)
 
     # Weather
     weather = get_weather()
@@ -737,10 +951,10 @@ def main():
     thermal_pct = thermal_solstice_pct(doy)
     thermal_trend = "cooling" if thermal_pct > 0 else "warming"
     thermal_anno = thermal_event_annotation(doy, now)
-    thermal_line = f"- Thermal solstice: {thermal_pct:+.0f}% ({thermal_trend}){thermal_anno}"
-
+    thermal_line = f"- Avg. thermal solstice: {thermal_pct:+.0f}% ({thermal_trend}){thermal_anno}"
+    
     accel_pct, accel_dir = thermal_acceleration(doy)
-    accel_line = f"- Temperature acceleration: {accel_pct:.0f}% {accel_dir}"
+    accel_line = f"- Avg. temp. acceleration: {accel_pct:.0f}% {accel_dir}"
 
     # Build report with explicit spacing
     weekday = today.strftime("%A")
@@ -773,9 +987,17 @@ def main():
         report += f"Reaches {ALTITUDE_THRESHOLD}° altitude during the night (not above {ALTITUDE_THRESHOLD}° at 9:00 PM):\n\n"
         report += "\n".join(reach_threshold_lines) + "\n\n"
 
-    if not_reach_items:
+    if not_reach_names:
         report += f"Not above {ALTITUDE_THRESHOLD}° at 9:00 PM, and does not reach {ALTITUDE_THRESHOLD}° overnight:\n\n"
-        report += ", ".join(not_reach_items) + "\n\n"
+        report += ", ".join(not_reach_names) + "\n\n"
+
+    # Inner planets subsection
+    report += "**Inner planets**\n\n"
+    for name in ['Mercury', 'Venus']:
+        data = inner_planet_data[name]
+        anno = inner_planet_event_annotation(name, today, data['events'])
+        report += f"- {name}: {data['status']}{anno}\n"
+    report += "\n"
 
     report += f"### Weather\n\n"
     report += f"- Current temperature: {weather['current']}°F\n"
@@ -791,10 +1013,10 @@ def main():
     report += f"Sources: Skyfield (JPL DE421 ephemeris), Open-Meteo"
 
     print(report)
-
+    
     # Send text report
     send_ntfy_text(NTFY_TOPIC, report)
-
+    
     # Send chart as separate image notification
     if chart_ready:
         send_ntfy_image(NTFY_TOPIC, chart_path, "Twilight at 6:15 AM")
