@@ -995,7 +995,7 @@ def main():
     report += "**Inner planets**\n\n"
     for name in ['Mercury', 'Venus']:
         data = inner_planet_data[name]
-        anno = inner_planet_event_annotation(name, today, data['events'])
+        anno = inner_planet_event_annotation(name, now, data['events'])
         report += f"- {name}: {data['status']}{anno}\n"
     report += "\n"
 
