@@ -685,25 +685,35 @@ def inner_planet_status(name, planet, today_dt):
     # Determine current phase
     today_elong = elongation_at(today_dt, planet)
     
-    # Check if near any conjunction (elongation < 10° and within 30 days)
+    # Check if near any conjunction (elongation < 10° and within window)
+    # Mercury moves fast: ~7 day window. Venus moves slow: ~30 day window.
     in_conjunction = False
     conj_end = None
     next_phase = None
     conj_type = None
+    conj_window = 7 if name == 'Mercury' else 30
     
+    # Find the closest conjunction event
+    closest_conj = None
+    closest_diff = float('inf')
     for dt, etype, detail in events:
         if etype in ('superior_conjunction', 'inferior_conjunction'):
-            days_diff = abs((today_dt - dt).total_seconds() / 86400)
-            if days_diff < 30 and today_elong < 10:
-                in_conjunction = True
-                conj_type = detail
-                # Find what comes next after this conjunction
-                for dt2, etype2, detail2 in events:
-                    if dt2 > dt and etype2 in ('evening_star_max', 'morning_star_max'):
-                        conj_end = dt2
-                        next_phase = detail2.split(',')[0]  # "evening star" or "morning star"
-                        break
-                break
+            diff = abs((today_dt - dt).total_seconds() / 86400)
+            if diff < closest_diff:
+                closest_diff = diff
+                closest_conj = (dt, etype, detail)
+    
+    if closest_conj:
+        dt, etype, detail = closest_conj
+        if closest_diff < conj_window and today_elong < 10:
+            in_conjunction = True
+            conj_type = detail
+            # Find what comes next after this conjunction
+            for dt2, etype2, detail2 in events:
+                if dt2 > dt and etype2 in ('evening_star_max', 'morning_star_max'):
+                    conj_end = dt2
+                    next_phase = detail2.split(',')[0]  # "evening star" or "morning star"
+                    break
     
     sunrise, sunset = find_sunrise_sunset(today_dt)
     
@@ -753,7 +763,7 @@ def inner_planet_status(name, planet, today_dt):
         'events': notify_events,
     }
 
-def inner_planet_event_annotation(name, today_dt, events):
+def inner_planet_event_annotation(name, today_dt, events, current_status=""):
     """Return proximity annotation for inner planet events.
     Mercury: in 3 days, in 2 days, tomorrow, today | yesterday
     Venus: full schedule like thermal
@@ -762,7 +772,15 @@ def inner_planet_event_annotation(name, today_dt, events):
     today_month = today_dt.month
     today_day = today_dt.day
     
+    # If currently in conjunction, don't show conjunction annotations (status already says it)
+    status_lower = current_status.lower()
+    in_conj_now = "conjunction" in status_lower
+    
     for event_dt, etype, detail in events:
+        # Skip conjunction annotations if status already shows we're in one
+        if in_conj_now and "conjunction" in detail.lower():
+            continue
+        
         event_month = event_dt.month
         event_day = event_dt.day
         
@@ -1003,7 +1021,7 @@ def main():
     report += "**Inner planets**\n\n"
     for name in ['Mercury', 'Venus']:
         data = inner_planet_data[name]
-        anno = inner_planet_event_annotation(name, now, data['events'])
+        anno = inner_planet_event_annotation(name, now, data['events'], data['status'])
         report += f"- {name}: {data['status']}{anno}\n"
     report += "\n"
 
