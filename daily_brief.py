@@ -717,9 +717,29 @@ def inner_planet_status(name, planet, today_dt):
     
     sunrise, sunset = find_sunrise_sunset(today_dt)
     
-    if in_conjunction and conj_end:
-        end_str = conj_end.strftime("%B %-d")
-        status = f"{conj_type} until ~{end_str}, then {next_phase}"
+    if in_conjunction and next_phase:
+        # Find actual end of conjunction: when planet becomes visible again
+        # (elongation > 10°). Search forward from conjunction date.
+        if closest_conj:
+            conj_dt = closest_conj[0]
+            search_start = conj_dt
+            search_end = conj_dt + timedelta(days=60)
+            current = search_start
+            end_date = None
+            while current <= search_end:
+                el = elongation_at(current, planet)
+                if el > 10:
+                    end_date = current
+                    break
+                current += timedelta(hours=6)
+            
+            if end_date:
+                end_str = end_date.strftime("%B %-d")
+                status = f"{conj_type} until ~{end_str}, then {next_phase}"
+            else:
+                status = f"{conj_type}, then {next_phase}"
+        else:
+            status = f"{conj_type}, then {next_phase}"
     else:
         # Check if evening or morning star
         t = ts.from_datetime(today_dt)
