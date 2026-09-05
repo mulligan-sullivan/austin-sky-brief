@@ -778,28 +778,42 @@ def inner_planet_status(name, planet, today_dt):
             # East of Sun = evening star
             if sunset:
                 alt, az = planet_position(planet, sunset)
+                # Check trend: compare today's sunset alt vs tomorrow's
+                tomorrow_sunset = sunset + timedelta(days=1)
+                t_tomorrow = ts.from_datetime(tomorrow_sunset)
+                tomorrow_app = observer.at(t_tomorrow).observe(planet).apparent()
+                tomorrow_alt, _, _ = tomorrow_app.altaz()
+                trend = ", rising" if tomorrow_alt.degrees > alt else ", sinking"
+                
                 if alt >= 0:
                     planet_set = find_set_time(planet, sunset, sunset + timedelta(hours=12))
                     if planet_set:
-                        status = f"evening star, {alt:.0f}° at sunset (sets {format_time(planet_set)})"
+                        status = f"evening star{trend}, {alt:.0f}° at sunset (sets {format_time(planet_set)})"
                     else:
-                        status = f"evening star, {alt:.0f}° at sunset"
+                        status = f"evening star{trend}, {alt:.0f}° at sunset"
                 else:
-                    status = f"evening star, below horizon at sunset"
+                    status = f"evening star{trend}, below horizon at sunset"
             else:
                 status = "evening star"
         else:
             # West of Sun = morning star
             if sunrise:
                 alt, az = planet_position(planet, sunrise)
+                # Check trend: compare today's sunrise alt vs tomorrow's
+                tomorrow_sunrise = sunrise + timedelta(days=1)
+                t_tomorrow = ts.from_datetime(tomorrow_sunrise)
+                tomorrow_app = observer.at(t_tomorrow).observe(planet).apparent()
+                tomorrow_alt, _, _ = tomorrow_app.altaz()
+                trend = ", rising" if tomorrow_alt.degrees > alt else ", sinking"
+                
                 if alt >= 0:
                     planet_rise = find_rise_time(planet, sunrise - timedelta(hours=12), sunrise)
                     if planet_rise:
-                        status = f"morning star, {alt:.0f}° at sunrise (rises {format_time(planet_rise)})"
+                        status = f"morning star{trend}, {alt:.0f}° at sunrise (rises {format_time(planet_rise)})"
                     else:
-                        status = f"morning star, {alt:.0f}° at sunrise"
+                        status = f"morning star{trend}, {alt:.0f}° at sunrise"
                 else:
-                    status = f"morning star, below horizon at sunrise"
+                    status = f"morning star{trend}, below horizon at sunrise"
             else:
                 status = "morning star"
     
