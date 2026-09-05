@@ -718,20 +718,45 @@ def inner_planet_status(name, planet, today_dt):
     sunrise, sunset = find_sunrise_sunset(today_dt)
     
     if in_conjunction and next_phase:
-        # Find actual end of conjunction: when planet becomes visible again
-        # (elongation > 10°). Search forward from conjunction date.
+        # Find actual end of conjunction: when planet first reaches 5° altitude
+        # at sunrise (morning star) or sunset (evening star). Search forward.
         if closest_conj:
             conj_dt = closest_conj[0]
             search_start = conj_dt
             search_end = conj_dt + timedelta(days=60)
             current = search_start
             end_date = None
+            
+            # Determine which twilight to check based on next phase
+            check_sunset = (next_phase == "evening star")
+            
             while current <= search_end:
-                el = elongation_at(current, planet)
-                if el > 10:
-                    end_date = current
-                    break
-                current += timedelta(hours=6)
+                # Get sunrise/sunset for this day
+                dt_noon = datetime(current.year, current.month, current.day, 12, 0, tzinfo=TZ)
+                t0 = ts.from_datetime(dt_noon - timedelta(hours=14))
+                t1 = ts.from_datetime(dt_noon + timedelta(hours=14))
+                f = almanac.sunrise_sunset(eph, austin)
+                times, events = almanac.find_discrete(t0, t1, f)
+                
+                twilight_time = None
+                for ti, event in zip(times, events):
+                    dt_local = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
+                    if check_sunset and event == 0:
+                        twilight_time = dt_local
+                        break
+                    elif not check_sunset and event == 1:
+                        twilight_time = dt_local
+                        break
+                
+                if twilight_time:
+                    t_twilight = ts.from_datetime(twilight_time)
+                    apparent = observer.at(t_twilight).observe(planet).apparent()
+                    alt, az, _ = apparent.altaz()
+                    if alt.degrees >= 5:
+                        end_date = twilight_time
+                        break
+                
+                current += timedelta(days=1)
             
             if end_date:
                 end_str = end_date.strftime("%B %-d")
