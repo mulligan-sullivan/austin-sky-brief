@@ -669,6 +669,104 @@ def _refine_extremum(planet, start_dt, end_dt, find_max=True):
     
     return best_dt, best_val
 
+def find_opposition_events(planet, start_dt, days=1460):
+    """Find opposition events for an outer planet over a ~4-year window."""
+    events = []
+    
+    # Sample every 12 hours
+    samples = []
+    current = start_dt
+    end = start_dt + timedelta(days=days)
+    while current <= end:
+        t = ts.from_datetime(current)
+        sun_app = observer.at(t).observe(sun).apparent()
+        planet_app = observer.at(t).observe(planet).apparent()
+        sun_lon = sun_app.ecliptic_latlon(epoch=None)[1].degrees
+        planet_lon = planet_app.ecliptic_latlon(epoch=None)[1].degrees
+        diff = (planet_lon - sun_lon + 180) % 360 - 180
+        samples.append((current, diff))
+        current += timedelta(hours=12)
+    
+    # Find zero crossings of diff = 0 (opposition)
+    for i in range(len(samples) - 1):
+        if samples[i][1] * samples[i+1][1] < 0:  # Sign change = crossing 180°
+            # Refine
+            best_dt = samples[i][0]
+            best_diff = abs(samples[i][1])
+            current = samples[i][0]
+            while current <= samples[i+1][0]:
+                t = ts.from_datetime(current)
+                sun_app = observer.at(t).observe(sun).apparent()
+                planet_app = observer.at(t).observe(planet).apparent()
+                sun_lon = sun_app.ecliptic_latlon(epoch=None)[1].degrees
+                planet_lon = planet_app.ecliptic_latlon(epoch=None)[1].degrees
+                diff = (planet_lon - sun_lon + 180) % 360 - 180
+                if abs(diff) < best_diff:
+                    best_diff = abs(diff)
+                    best_dt = current
+                current += timedelta(hours=1)
+            
+            events.append((best_dt, "opposition", "opposition"))
+    
+    # Remove duplicates
+    seen = set()
+    unique = []
+    for e in sorted(events, key=lambda x: x[0]):
+        key = e[0].strftime('%Y-%m-%d')
+        if key not in seen:
+            seen.add(key)
+            unique.append(e)
+    
+    return unique
+
+def outer_planet_event_annotation(today_dt, events):
+    """Return proximity annotation for outer planet events (opposition).
+    Full Venus-style schedule.
+    """
+    annotations = []
+    today_month = today_dt.month
+    today_day = today_dt.day
+    
+    for event_dt, etype, detail in events:
+        event_month = event_dt.month
+        event_day = event_dt.day
+        
+        days_until = (event_dt - today_dt).total_seconds() / 86400
+        days_since = (today_dt - event_dt).total_seconds() / 86400
+        
+        du = round(days_until)
+        ds = round(days_since)
+        
+        # Calendar "a month from today"
+        month_before = event_month - 1
+        if month_before == 0:
+            month_before = 12
+        if today_month == month_before and today_day == event_day:
+            annotations.append((0, f"{detail} a month from today"))
+            continue
+        
+        if du == 0:
+            annotations.append((0, detail))
+        elif du == 1:
+            annotations.append((1, f"{detail} tomorrow"))
+        elif 2 <= du <= 7:
+            annotations.append((du, f"{detail} this week"))
+        elif 8 <= du <= 14:
+            annotations.append((du, f"{detail} next week"))
+        elif 15 <= du <= 21:
+            annotations.append((du, f"{detail} two weeks away"))
+        
+        if ds == 1:
+            annotations.append((ds, f"{detail} yesterday"))
+        elif 2 <= ds <= 7:
+            annotations.append((ds, f"{detail} in the past week"))
+    
+    if not annotations:
+        return ""
+    
+    best = min(annotations, key=lambda x: x[0])
+    return f" — {best[1]}"
+
 def inner_planet_status(name, planet, today_dt):
     """
     Return current status info for Mercury or Venus.
@@ -1006,6 +1104,11 @@ def main():
     inner_planet_data = {}
     for name, planet in INNER_PLANETS.items():
         inner_planet_data[name] = inner_planet_status(name, planet, now)
+    
+    # Outer planet opposition events
+    outer_planet_events = {}
+    for name, planet in PLANETS.items():
+        outer_planet_events[name] = find_opposition_events(planet, now - timedelta(days=365), days=730)
 
     # Weather
     weather = get_weather()
@@ -1066,15 +1169,33 @@ def main():
 
     if above_threshold_21:
         report += f"Above {ALTITUDE_THRESHOLD}° at 9:00 PM today:\n\n"
-        report += "\n".join(above_threshold_21) + "\n\n"
+        annotated = []
+        for line in above_threshold_21:
+            # Extract planet name from line like "- Mars: ..."
+            name = line[2:].split(":")[0]
+            anno = outer_planet_event_annotation(now, outer_planet_events.get(name, []))
+            annotated.append(line + anno)
+        report += "\n".join(annotated) + "\n\n"
 
     if reach_threshold_lines:
         report += f"Reaches {ALTITUDE_THRESHOLD}° altitude during the night (not above {ALTITUDE_THRESHOLD}° at 9:00 PM):\n\n"
-        report += "\n".join(reach_threshold_lines) + "\n\n"
+        annotated = []
+        for line in reach_threshold_lines:
+            name = line[2:].split(":")[0]
+            anno = outer_planet_event_annotation(now, outer_planet_events.get(name, []))
+            annotated.append(line + anno)
+        report += "\n".join(annotated) + "\n\n"
 
     if not_reach_names:
         report += f"Not above {ALTITUDE_THRESHOLD}° at 9:00 PM, and does not reach {ALTITUDE_THRESHOLD}° overnight:\n\n"
-        report += ", ".join(not_reach_names) + "\n\n"
+        annotated = []
+        for name in not_reach_names:
+            anno = outer_planet_event_annotation(now, outer_planet_events.get(name, []))
+            if anno:
+                annotated.append(f"{name}{anno}")
+            else:
+                annotated.append(name)
+        report += ", ".join(annotated) + "\n\n"
 
     # Inner planets subsection
     report += "**Inner planets**\n\n"
