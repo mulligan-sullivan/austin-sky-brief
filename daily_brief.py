@@ -8,7 +8,7 @@ import os
 import sys
 import math
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 import time
 
@@ -120,16 +120,16 @@ WILDFLOWER_EVENTS = {
         "last_flowers": (6, 28),
         "ended": (7, 5),
     },
-    "Turk's Cap": {
-        "first_flowers": (3, 22),
-        "beginning_flowering": (3, 29),
-        "full_bloom": (8, 30),
-        "peak_bloom": (9, 6),
-        "past_peak": (9, 27),
-        "season_closing": (11, 8),
-        "last_day": (11, 29),
-        "last_flowers": (12, 6),
-        "ended": (12, 13),
+    "Black-Eyed Susan": {
+        "first_flowers": (4, 12),
+        "beginning_flowering": (4, 19),
+        "full_bloom": (4, 26),
+        "peak_bloom": (5, 10),
+        "past_peak": (5, 31),
+        "season_closing": (6, 28),
+        "last_day": (7, 5),
+        "last_flowers": (7, 12),
+        "ended": (7, 19),
     },
     "Plains Coreopsis": {
         "first_flowers": (4, 5),
@@ -142,27 +142,27 @@ WILDFLOWER_EVENTS = {
         "last_flowers": (7, 12),
         "ended": (7, 19),
     },
-    "Black-Eyed Susan": {
-        "first_flowers": (4, 12),
-        "beginning_flowering": (4, 19),
-        "full_bloom": (4, 26),
-        "peak_bloom": (5, 10),
-        "past_peak": (5, 31),
-        "season_closing": (6, 28),
-        "last_day": (7, 5),
-        "last_flowers": (7, 12),
-        "ended": (7, 19),
+    "Aromatic Aster": {
+        "first_flowers": (9, 27),
+        "beginning_flowering": (10, 4),
+        "full_bloom": (10, 11),
+        "peak_bloom": (10, 18),
+        "past_peak": (10, 25),
+        "season_closing": (11, 22),
+        "last_day": (12, 6),
+        "last_flowers": (12, 20),
+        "ended": (12, 27),
     },
-    "Snow-on-the-Mountain": {
-        "first_flowers": (8, 2),
-        "beginning_flowering": (8, 9),
-        "full_bloom": (8, 30),
-        "peak_bloom": (9, 6),
-        "past_peak": (9, 20),
-        "season_closing": (10, 18),
-        "last_day": (11, 22),
-        "last_flowers": (11, 29),
-        "ended": (12, 6),
+    "Tall Goldenrod": {
+        "first_flowers": (8, 9),
+        "beginning_flowering": (9, 20),
+        "full_bloom": (9, 27),
+        "peak_bloom": (10, 4),
+        "past_peak": (10, 25),
+        "season_closing": (11, 1),
+        "last_day": (12, 6),
+        "last_flowers": (12, 31),
+        "ended": (1, 7),
     },
     "Maximilian Sunflower": {
         "first_flowers": (8, 2),
@@ -186,16 +186,16 @@ WILDFLOWER_EVENTS = {
         "last_flowers": (11, 29),
         "ended": (12, 6),
     },
-    "Tall Goldenrod": {
-        "first_flowers": (8, 9),
-        "beginning_flowering": (9, 20),
-        "full_bloom": (9, 27),
-        "peak_bloom": (10, 4),
-        "past_peak": (10, 25),
-        "season_closing": (11, 1),
-        "last_day": (12, 6),
-        "last_flowers": (12, 31),
-        "ended": (1, 7),
+    "Snow-on-the-Mountain": {
+        "first_flowers": (8, 2),
+        "beginning_flowering": (8, 9),
+        "full_bloom": (8, 30),
+        "peak_bloom": (9, 6),
+        "past_peak": (9, 20),
+        "season_closing": (10, 18),
+        "last_day": (11, 22),
+        "last_flowers": (11, 29),
+        "ended": (12, 6),
     },
     "Toothleaf Goldeneye": {
         "first_flowers": (9, 13),
@@ -208,16 +208,16 @@ WILDFLOWER_EVENTS = {
         "last_flowers": (12, 31),
         "ended": (1, 7),
     },
-    "Aromatic Aster": {
-        "first_flowers": (9, 27),
-        "beginning_flowering": (10, 4),
-        "full_bloom": (10, 11),
-        "peak_bloom": (10, 18),
-        "past_peak": (10, 25),
-        "season_closing": (11, 22),
-        "last_day": (12, 6),
-        "last_flowers": (12, 20),
-        "ended": (12, 27),
+    "Turk's Cap": {
+        "first_flowers": (3, 22),
+        "beginning_flowering": (3, 29),
+        "full_bloom": (8, 30),
+        "peak_bloom": (9, 6),
+        "past_peak": (9, 27),
+        "season_closing": (11, 8),
+        "last_day": (11, 29),
+        "last_flowers": (12, 6),
+        "ended": (12, 13),
     },
 }
 
@@ -232,6 +232,20 @@ WILDFLOWER_LABELS = {
     "last_flowers": "Last flowers",
     "ended": "Season ended yesterday",
 }
+
+# ==================== PECANS ====================
+# Pecans ripen by accumulated heat, not calendar. GDD base 50F: daily
+# (max+min)/2 - 50, floored at 0, tallied from Jan 1 every morning.
+# Thresholds calibrated on 2016-2025 iNaturalist pecan attention ramps +
+# Open-Meteo archive temps (out-of-sample 2020/2023/2025 MAE 4.7 days;
+# known failure mode: record-hot years like 2023 run ~11d early because
+# extreme heat saturates kernel fill - hence "likely" on every label).
+PECAN_GDD_CULTIVARS = 5697   # yard/improved trees, earlier
+PECAN_GDD_NATIVE = 6138      # natives along creeks/riverbanks
+PECAN_READY_DAYS = 21        # "likely ready" persists this long past crossing
+PECAN_GLEAN_DAYS = 45        # then "likely gleanings" until this long past
+# 2016-2025 mean cumulative GDD50 by week (climatological pace for the forecast)
+PECAN_GDD_NORMAL_WEEKLY = [12, 42, 75, 103, 134, 190, 231, 287, 357, 443, 542, 641, 764, 887, 1010, 1148, 1287, 1452, 1622, 1802, 1997, 2201, 2408, 2635, 2875, 3113, 3356, 3601, 3854, 4111, 4364, 4621, 4886, 5147, 5395, 5633, 5848, 6072, 6292, 6483, 6675, 6839, 6992, 7104, 7222, 7309, 7396, 7460, 7517, 7564, 7609, 7662, 7698]
 
 # ==================== SKYFIELD SETUP ====================
 load = Loader('./skyfield_data')
@@ -1185,6 +1199,7 @@ def inner_planet_event_annotation(name, today_dt, events, current_status=""):
     best = min(annotations, key=lambda x: x[0])
     return f" — {best[1]}"
 
+
 # ==================== WILDFLOWER HELPERS ====================
 
 def wildflower_status(events, today_dt):
@@ -1244,6 +1259,96 @@ def wildflower_status(events, today_dt):
     if ld < td <= lf:
         return "Last flowers"
     return None
+
+# ==================== PECAN HELPERS ====================
+
+def _pecan_season_tally(today):
+    """Season-to-date GDD50 for Austin: archive through ~5 days ago,
+    forecast API for the last week (splice on date to avoid overlap)."""
+    def add(tmaxs, tmins):
+        return sum(max(0.0, (hi + lo) / 2.0 - 50.0)
+                   for hi, lo in zip(tmaxs, tmins) if hi is not None and lo is not None)
+
+    tally = 0.0
+    jan1 = date(today.year, 1, 1)
+    archive_end = today - timedelta(days=6)
+    seen = set()
+    if archive_end >= jan1:
+        u1 = ("https://archive-api.open-meteo.com/v1/archive?latitude=30.2672&longitude=-97.7431"
+              f"&start_date={jan1}&end_date={archive_end}"
+              "&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=America%2FChicago")
+        try:
+            d1 = requests.get(u1, timeout=30).json()['daily']
+            seen = set(d1['time'])
+            tally += add(d1['temperature_2m_max'], d1['temperature_2m_min'])
+        except Exception as e:
+            print(f"Pecan archive fetch failed: {e}")
+    u2 = ("https://api.open-meteo.com/v1/forecast?latitude=30.2672&longitude=-97.7431"
+          "&daily=temperature_2m_max,temperature_2m_min&past_days=7"
+          "&temperature_unit=fahrenheit&timezone=America%2FChicago")
+    try:
+        d2 = requests.get(u2, timeout=30).json()['daily']
+        hi = [h for t, h in zip(d2['time'], d2['temperature_2m_max']) if t not in seen]
+        lo = [l for t, l in zip(d2['time'], d2['temperature_2m_min']) if t not in seen]
+        tally += add(hi, lo)
+    except Exception as e:
+        print(f"Pecan forecast fetch failed: {e}")
+    return tally
+
+def _pecan_normal_cross_doy(threshold):
+    """Day-of-year the climatological tally reaches a threshold (interpolated
+    in the weekly normal table). Fallbacks if the table is ever empty."""
+    if not PECAN_GDD_NORMAL_WEEKLY:
+        return 248 if threshold == PECAN_GDD_CULTIVARS else 262
+    for i in range(1, len(PECAN_GDD_NORMAL_WEEKLY)):
+        if PECAN_GDD_NORMAL_WEEKLY[i] >= threshold:
+            prev, cur = PECAN_GDD_NORMAL_WEEKLY[i - 1], PECAN_GDD_NORMAL_WEEKLY[i]
+            frac = (threshold - prev) / (cur - prev) if cur > prev else 0
+            return (i - 1) * 7 + round(frac * 7)
+    return 364
+
+def _pecan_days_out(tally, threshold, today):
+    """Days until the season tally reaches threshold at climatological pace."""
+    if tally >= threshold:
+        return 0
+    need = threshold - tally
+    days = 0
+    doy = today.timetuple().tm_yday
+    while need > 0 and days < 250:
+        if PECAN_GDD_NORMAL_WEEKLY:
+            wk = min((doy + days - 1) // 7, 51)
+            rate = (PECAN_GDD_NORMAL_WEEKLY[wk + 1] - PECAN_GDD_NORMAL_WEEKLY[wk]) / 7.0
+        else:
+            rate = 31.0
+        need -= rate
+        days += 1
+    return days
+
+def pecan_lines(now, today):
+    """One label per indicator, in year order: Cultivars first (earlier),
+    then Native trees. Six labels, mutually exclusive."""
+    tally = _pecan_season_tally(today)
+    doy = today.timetuple().tm_yday
+    lines = []
+    for label, threshold in (("Cultivars", PECAN_GDD_CULTIVARS),
+                             ("Native trees", PECAN_GDD_NATIVE)):
+        cross = _pecan_normal_cross_doy(threshold)
+        if doy == cross + PECAN_GLEAN_DAYS + 1:
+            lines.append(f"- {label}: season likely over yesterday")
+        elif tally >= threshold:
+            if doy <= cross + PECAN_READY_DAYS:
+                lines.append(f"- {label}: likely ready")
+            elif doy <= cross + PECAN_GLEAN_DAYS:
+                lines.append(f"- {label}: likely gleanings")
+        else:
+            days_out = _pecan_days_out(tally, threshold, today)
+            if 15 <= days_out <= 21:
+                lines.append(f"- {label}: likely ready in 3 weeks")
+            elif 8 <= days_out <= 14:
+                lines.append(f"- {label}: likely ready in 2 weeks")
+            elif 1 <= days_out <= 7:
+                lines.append(f"- {label}: likely ready next week")
+    return lines
 
 # ==================== MAIN ====================
 
@@ -1477,21 +1582,26 @@ def main():
     report += f"{rain_pct_line}\n"
     report += f"{wind_avg_line}\n"
     report += f"{wind_pct_line}\n\n"
-
-    # Wildflowers section — every active species prints its status every day
+    # Nature section - Pecans above Wildflowers; printed only when something is active
+    pecan = pecan_lines(now, today)
     wildflower_lines = []
     for wf_name in WILDFLOWER_ORDER:
         status = wildflower_status(WILDFLOWER_EVENTS[wf_name], now)
         if status:
             wildflower_lines.append(f"- {wf_name}: {status}")
-    if wildflower_lines:
-        report += "### Wildflowers\n\n"
-        report += "\n".join(wildflower_lines) + "\n\n"
+    if pecan or wildflower_lines:
+        report += "### Nature\n\n"
+        if pecan:
+            report += "**Pecans**\n\n"
+            report += "\n".join(pecan) + "\n\n"
+        if wildflower_lines:
+            report += "**Wildflowers**\n\n"
+            report += "\n".join(wildflower_lines) + "\n\n"
 
     report += f"Sources: Skyfield (JPL DE421 ephemeris), Open-Meteo"
 
     print(report)
-
+    
     # Send report in two halves, second half FIRST. In ntfy, the newest
     # message sits on top, so the stack reads: image on top, then the report
     # beginning, then Weather/Wildflowers below.
@@ -1504,7 +1614,7 @@ def main():
     time.sleep(3)
     send_ntfy_text(NTFY_TOPIC, first_half)
     time.sleep(3)
-
+    
     # Send chart last so it lands on top of the notification stack
     if chart_ready:
         send_ntfy_image(NTFY_TOPIC, chart_path, "Twilight at 6:15 AM")
