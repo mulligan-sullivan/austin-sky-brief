@@ -10,6 +10,7 @@ import math
 import requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import time
 
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
@@ -69,19 +70,20 @@ THERMAL_EVENTS_CAL = [
 # >=10%, full bloom >=50%, peak bloom >=75%, past peak <75%,
 # season closing <30%, last day = final day >=10% of peak,
 # last flowers = final day >=5% of peak (symmetric with first flowers).
+# Listed in chronological order of first flowers through the year.
 WILDFLOWER_ORDER = [
     "Texas Bluebonnet",
     "Texas Paintbrush",
     "Pinkladies",
-    "Black-Eyed Susan",
+    "Turk's Cap",
     "Plains Coreopsis",
-    "Aromatic Aster",
-    "Tall Goldenrod",
+    "Black-Eyed Susan",
+    "Snow-on-the-Mountain",
     "Maximilian Sunflower",
     "Narrow-Leaf Gayfeather",
-    "Snow-on-the-Mountain",
+    "Tall Goldenrod",
     "Toothleaf Goldeneye",
-    "Turk's Cap",
+    "Aromatic Aster",
 ]
 
 WILDFLOWER_EVENTS = {
@@ -118,16 +120,16 @@ WILDFLOWER_EVENTS = {
         "last_flowers": (6, 28),
         "ended": (7, 5),
     },
-    "Black-Eyed Susan": {
-        "first_flowers": (4, 12),
-        "beginning_flowering": (4, 19),
-        "full_bloom": (4, 26),
-        "peak_bloom": (5, 10),
-        "past_peak": (5, 31),
-        "season_closing": (6, 28),
-        "last_day": (7, 5),
-        "last_flowers": (7, 12),
-        "ended": (7, 19),
+    "Turk's Cap": {
+        "first_flowers": (3, 22),
+        "beginning_flowering": (3, 29),
+        "full_bloom": (8, 30),
+        "peak_bloom": (9, 6),
+        "past_peak": (9, 27),
+        "season_closing": (11, 8),
+        "last_day": (11, 29),
+        "last_flowers": (12, 6),
+        "ended": (12, 13),
     },
     "Plains Coreopsis": {
         "first_flowers": (4, 5),
@@ -140,27 +142,27 @@ WILDFLOWER_EVENTS = {
         "last_flowers": (7, 12),
         "ended": (7, 19),
     },
-    "Aromatic Aster": {
-        "first_flowers": (9, 27),
-        "beginning_flowering": (10, 4),
-        "full_bloom": (10, 11),
-        "peak_bloom": (10, 18),
-        "past_peak": (10, 25),
-        "season_closing": (11, 22),
-        "last_day": (12, 6),
-        "last_flowers": (12, 20),
-        "ended": (12, 27),
+    "Black-Eyed Susan": {
+        "first_flowers": (4, 12),
+        "beginning_flowering": (4, 19),
+        "full_bloom": (4, 26),
+        "peak_bloom": (5, 10),
+        "past_peak": (5, 31),
+        "season_closing": (6, 28),
+        "last_day": (7, 5),
+        "last_flowers": (7, 12),
+        "ended": (7, 19),
     },
-    "Tall Goldenrod": {
-        "first_flowers": (8, 9),
-        "beginning_flowering": (9, 20),
-        "full_bloom": (9, 27),
-        "peak_bloom": (10, 4),
-        "past_peak": (10, 25),
-        "season_closing": (11, 1),
-        "last_day": (12, 6),
-        "last_flowers": (12, 31),
-        "ended": (1, 7),
+    "Snow-on-the-Mountain": {
+        "first_flowers": (8, 2),
+        "beginning_flowering": (8, 9),
+        "full_bloom": (8, 30),
+        "peak_bloom": (9, 6),
+        "past_peak": (9, 20),
+        "season_closing": (10, 18),
+        "last_day": (11, 22),
+        "last_flowers": (11, 29),
+        "ended": (12, 6),
     },
     "Maximilian Sunflower": {
         "first_flowers": (8, 2),
@@ -184,16 +186,16 @@ WILDFLOWER_EVENTS = {
         "last_flowers": (11, 29),
         "ended": (12, 6),
     },
-    "Snow-on-the-Mountain": {
-        "first_flowers": (8, 2),
-        "beginning_flowering": (8, 9),
-        "full_bloom": (8, 30),
-        "peak_bloom": (9, 6),
-        "past_peak": (9, 20),
-        "season_closing": (10, 18),
-        "last_day": (11, 22),
-        "last_flowers": (11, 29),
-        "ended": (12, 6),
+    "Tall Goldenrod": {
+        "first_flowers": (8, 9),
+        "beginning_flowering": (9, 20),
+        "full_bloom": (9, 27),
+        "peak_bloom": (10, 4),
+        "past_peak": (10, 25),
+        "season_closing": (11, 1),
+        "last_day": (12, 6),
+        "last_flowers": (12, 31),
+        "ended": (1, 7),
     },
     "Toothleaf Goldeneye": {
         "first_flowers": (9, 13),
@@ -206,16 +208,16 @@ WILDFLOWER_EVENTS = {
         "last_flowers": (12, 31),
         "ended": (1, 7),
     },
-    "Turk's Cap": {
-        "first_flowers": (3, 22),
-        "beginning_flowering": (3, 29),
-        "full_bloom": (8, 30),
-        "peak_bloom": (9, 6),
-        "past_peak": (9, 27),
-        "season_closing": (11, 8),
-        "last_day": (11, 29),
-        "last_flowers": (12, 6),
-        "ended": (12, 13),
+    "Aromatic Aster": {
+        "first_flowers": (9, 27),
+        "beginning_flowering": (10, 4),
+        "full_bloom": (10, 11),
+        "peak_bloom": (10, 18),
+        "past_peak": (10, 25),
+        "season_closing": (11, 22),
+        "last_day": (12, 6),
+        "last_flowers": (12, 20),
+        "ended": (12, 27),
     },
 }
 
@@ -1489,11 +1491,21 @@ def main():
     report += f"Sources: Skyfield (JPL DE421 ephemeris), Open-Meteo"
 
     print(report)
-    
-    # Send text report
-    send_ntfy_text(NTFY_TOPIC, report)
-    
-    # Send chart as separate image notification
+
+    # Send report in two halves, second half FIRST. In ntfy, the newest
+    # message sits on top, so the stack reads: image on top, then the report
+    # beginning, then Weather/Wildflowers below.
+    split_marker = "### Weather"
+    split_at = report.index(split_marker)
+    second_half = report[split_at:]
+    first_half = report[:split_at]
+
+    send_ntfy_text(NTFY_TOPIC, second_half)
+    time.sleep(1)
+    send_ntfy_text(NTFY_TOPIC, first_half)
+    time.sleep(1)
+
+    # Send chart last so it lands on top of the notification stack
     if chart_ready:
         send_ntfy_image(NTFY_TOPIC, chart_path, "Twilight at 6:15 AM")
 
