@@ -237,13 +237,18 @@ WILDFLOWER_LABELS = {
 # Pecans ripen by accumulated heat, not calendar. GDD base 50F: daily
 # (max+min)/2 - 50, floored at 0, tallied from Jan 1 every morning.
 # Thresholds calibrated on 2016-2025 iNaturalist pecan attention ramps +
-# Open-Meteo archive temps (out-of-sample 2020/2023/2025 MAE 4.7 days;
-# known failure mode: record-hot years like 2023 run ~11d early because
-# extreme heat saturates kernel fill - hence "likely" on every label).
+# Open-Meteo archive (out-of-sample 2020/2023/2025 MAE 4.7 days; record-hot
+# years run early because extreme heat saturates kernel fill).
+# Windows (days past climatological crossing) from extension literature:
+# cultivars flush fast and finish by mid-Nov; natives bulk in October and
+# hold into early December; a hard freeze (<=28F low) kills green shucks and
+# drops the hangers - hence the one-day first-freeze event that can even
+# resurrect a season that already ended.
 PECAN_GDD_CULTIVARS = 5697   # yard/improved trees, earlier
 PECAN_GDD_NATIVE = 6138      # natives along creeks/riverbanks
-PECAN_READY_DAYS = 21        # "likely ready" persists this long past crossing
-PECAN_GLEAN_DAYS = 45        # then "likely gleanings" until this long past
+PECAN_WINDOWS = {"Cultivars": (30, 72), "Native trees": (40, 80)}  # (ready days, glean days)
+PECAN_FREEZE_TEMP = 28       # daily low at/below this = killing freeze
+PECAN_FREEZE_START_DOY = 275  # Oct 2 - earliest a freeze message can fire
 # 2016-2025 mean cumulative GDD50 by week (climatological pace for the forecast)
 PECAN_GDD_NORMAL_WEEKLY = [12, 42, 75, 103, 134, 190, 231, 287, 357, 443, 542, 641, 764, 887, 1010, 1148, 1287, 1452, 1622, 1802, 1997, 2201, 2408, 2635, 2875, 3113, 3356, 3601, 3854, 4111, 4364, 4621, 4886, 5147, 5395, 5633, 5848, 6072, 6292, 6483, 6675, 6839, 6992, 7104, 7222, 7309, 7396, 7460, 7517, 7564, 7609, 7662, 7698]
 
@@ -1262,14 +1267,11 @@ def wildflower_status(events, today_dt):
 
 # ==================== PECAN HELPERS ====================
 
-def _pecan_season_tally(today):
-    """Season-to-date GDD50 for Austin: archive through ~5 days ago,
-    forecast API for the last week (splice on date to avoid overlap)."""
-    def add(tmaxs, tmins):
-        return sum(max(0.0, (hi + lo) / 2.0 - 50.0)
-                   for hi, lo in zip(tmaxs, tmins) if hi is not None and lo is not None)
-
+def _pecan_season_data(today):
+    """Season-to-date GDD50 tally AND the season's daily lows, spliced from
+    the archive (through ~5 days ago) + forecast API (last week)."""
     tally = 0.0
+    lows = []  # (date, daily_low_F)
     jan1 = date(today.year, 1, 1)
     archive_end = today - timedelta(days=6)
     seen = set()
@@ -1280,7 +1282,10 @@ def _pecan_season_tally(today):
         try:
             d1 = requests.get(u1, timeout=30).json()['daily']
             seen = set(d1['time'])
-            tally += add(d1['temperature_2m_max'], d1['temperature_2m_min'])
+            for t, hi, lo in zip(d1['time'], d1['temperature_2m_max'], d1['temperature_2m_min']):
+                if hi is not None and lo is not None:
+                    tally += max(0.0, (hi + lo) / 2.0 - 50.0)
+                    lows.append((date.fromisoformat(t), lo))
         except Exception as e:
             print(f"Pecan archive fetch failed: {e}")
     u2 = ("https://api.open-meteo.com/v1/forecast?latitude=30.2672&longitude=-97.7431"
@@ -1288,12 +1293,13 @@ def _pecan_season_tally(today):
           "&temperature_unit=fahrenheit&timezone=America%2FChicago")
     try:
         d2 = requests.get(u2, timeout=30).json()['daily']
-        hi = [h for t, h in zip(d2['time'], d2['temperature_2m_max']) if t not in seen]
-        lo = [l for t, l in zip(d2['time'], d2['temperature_2m_min']) if t not in seen]
-        tally += add(hi, lo)
+        for t, hi, lo in zip(d2['time'], d2['temperature_2m_max'], d2['temperature_2m_min']):
+            if t not in seen and hi is not None and lo is not None:
+                tally += max(0.0, (hi + lo) / 2.0 - 50.0)
+                lows.append((date.fromisoformat(t), lo))
     except Exception as e:
         print(f"Pecan forecast fetch failed: {e}")
-    return tally
+    return tally, sorted(lows)
 
 def _pecan_normal_cross_doy(threshold):
     """Day-of-year the climatological tally reaches a threshold (interpolated
@@ -1325,21 +1331,34 @@ def _pecan_days_out(tally, threshold, today):
     return days
 
 def pecan_lines(now, today):
-    """One label per indicator, in year order: Cultivars first (earlier),
-    then Native trees. Six labels, mutually exclusive."""
-    tally = _pecan_season_tally(today)
+    """One label per indicator, Cultivars first. Countdown bands before the
+    season, percent-labeled season labels during, one-day first-freeze event
+    any time (it can resurrect a season that already ended)."""
+    tally, lows = _pecan_season_data(today)
     doy = today.timetuple().tm_yday
+    yesterday = today - timedelta(days=1)
+    freeze_nights = [d0 for d0, lo in lows
+                     if lo is not None and lo <= PECAN_FREEZE_TEMP
+                     and d0.timetuple().tm_yday >= PECAN_FREEZE_START_DOY
+                     and d0 < today]
+    first_freeze = min(freeze_nights) if freeze_nights else None
+
     lines = []
     for label, threshold in (("Cultivars", PECAN_GDD_CULTIVARS),
                              ("Native trees", PECAN_GDD_NATIVE)):
+        ready_d, glean_d = PECAN_WINDOWS[label]
         cross = _pecan_normal_cross_doy(threshold)
-        if doy == cross + PECAN_GLEAN_DAYS + 1:
+        if (first_freeze == yesterday
+                and yesterday.timetuple().tm_yday <= cross + glean_d + 21):
+            lines.append(f"- {label}: first freeze last night — last nuts likely down")
+        elif doy == cross + glean_d + 1:
             lines.append(f"- {label}: season likely over yesterday")
         elif tally >= threshold:
-            if doy <= cross + PECAN_READY_DAYS:
-                lines.append(f"- {label}: likely ready")
-            elif doy <= cross + PECAN_GLEAN_DAYS:
-                lines.append(f"- {label}: likely gleanings")
+            pct = max(0, min(100, round(100 * (doy - cross) / glean_d)))
+            if doy <= cross + ready_d:
+                lines.append(f"- {label}: likely ready (season {pct}%)")
+            elif doy <= cross + glean_d:
+                lines.append(f"- {label}: likely gleanings (season {pct}%)")
         else:
             days_out = _pecan_days_out(tally, threshold, today)
             if 15 <= days_out <= 21:
