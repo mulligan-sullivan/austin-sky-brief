@@ -61,6 +61,176 @@ THERMAL_EVENTS_CAL = [
     (10, 23, "autumn equinox"),
 ]
 
+# ==================== WILDFLOWERS ====================
+# Bloom-season event dates derived from 10-year average bloom curves
+# (2016-2025 iNaturalist research-grade observations, Austin; see
+# wildflower_bloom_curves_2016_2025.csv). Thresholds follow BBCH/NPN
+# convention: first flowers ~5% of seasonal peak, beginning of flowering
+# >=10%, full bloom >=50%, peak bloom >=75%, past peak <75%,
+# season closing <30%, last day = final day >=10% of peak,
+# last flowers = final day >=5% of peak (symmetric with first flowers).
+WILDFLOWER_ORDER = [
+    "Texas Bluebonnet",
+    "Texas Paintbrush",
+    "Pinkladies",
+    "Black-Eyed Susan",
+    "Plains Coreopsis",
+    "Aromatic Aster",
+    "Tall Goldenrod",
+    "Maximilian Sunflower",
+    "Narrow-Leaf Gayfeather",
+    "Snow-on-the-Mountain",
+    "Toothleaf Goldeneye",
+    "Turk's Cap",
+]
+
+WILDFLOWER_EVENTS = {
+    "Texas Bluebonnet": {
+        "first_flowers": (2, 15),
+        "beginning_flowering": (2, 22),
+        "full_bloom": (3, 8),
+        "peak_bloom": (3, 15),
+        "past_peak": (4, 19),
+        "season_closing": (5, 3),
+        "last_day": (5, 10),
+        "last_flowers": (5, 17),
+        "ended": (5, 24),
+    },
+    "Texas Paintbrush": {
+        "first_flowers": (2, 15),
+        "beginning_flowering": (2, 22),
+        "full_bloom": (3, 8),
+        "peak_bloom": (3, 15),
+        "past_peak": (4, 19),
+        "season_closing": (5, 17),
+        "last_day": (5, 24),
+        "last_flowers": (5, 31),
+        "ended": (6, 7),
+    },
+    "Pinkladies": {
+        "first_flowers": (3, 1),
+        "beginning_flowering": (3, 15),
+        "full_bloom": (3, 22),
+        "peak_bloom": (3, 29),
+        "past_peak": (4, 26),
+        "season_closing": (5, 10),
+        "last_day": (5, 17),
+        "last_flowers": (6, 28),
+        "ended": (7, 5),
+    },
+    "Black-Eyed Susan": {
+        "first_flowers": (4, 12),
+        "beginning_flowering": (4, 19),
+        "full_bloom": (4, 26),
+        "peak_bloom": (5, 10),
+        "past_peak": (5, 31),
+        "season_closing": (6, 28),
+        "last_day": (7, 5),
+        "last_flowers": (7, 12),
+        "ended": (7, 19),
+    },
+    "Plains Coreopsis": {
+        "first_flowers": (4, 5),
+        "beginning_flowering": (4, 12),
+        "full_bloom": (5, 3),
+        "peak_bloom": (5, 10),
+        "past_peak": (5, 31),
+        "season_closing": (6, 28),
+        "last_day": (7, 5),
+        "last_flowers": (7, 12),
+        "ended": (7, 19),
+    },
+    "Aromatic Aster": {
+        "first_flowers": (9, 27),
+        "beginning_flowering": (10, 4),
+        "full_bloom": (10, 11),
+        "peak_bloom": (10, 18),
+        "past_peak": (10, 25),
+        "season_closing": (11, 22),
+        "last_day": (12, 6),
+        "last_flowers": (12, 20),
+        "ended": (12, 27),
+    },
+    "Tall Goldenrod": {
+        "first_flowers": (8, 9),
+        "beginning_flowering": (9, 20),
+        "full_bloom": (9, 27),
+        "peak_bloom": (10, 4),
+        "past_peak": (10, 25),
+        "season_closing": (11, 1),
+        "last_day": (12, 6),
+        "last_flowers": (12, 31),
+        "ended": (1, 7),
+    },
+    "Maximilian Sunflower": {
+        "first_flowers": (8, 2),
+        "beginning_flowering": (8, 23),
+        "full_bloom": (10, 4),
+        "peak_bloom": (10, 11),
+        "past_peak": (10, 25),
+        "season_closing": (11, 8),
+        "last_day": (12, 6),
+        "last_flowers": (12, 20),
+        "ended": (12, 27),
+    },
+    "Narrow-Leaf Gayfeather": {
+        "first_flowers": (8, 9),
+        "beginning_flowering": (8, 16),
+        "full_bloom": (8, 30),
+        "peak_bloom": (9, 6),
+        "past_peak": (9, 27),
+        "season_closing": (11, 8),
+        "last_day": (11, 22),
+        "last_flowers": (11, 29),
+        "ended": (12, 6),
+    },
+    "Snow-on-the-Mountain": {
+        "first_flowers": (8, 2),
+        "beginning_flowering": (8, 9),
+        "full_bloom": (8, 30),
+        "peak_bloom": (9, 6),
+        "past_peak": (9, 20),
+        "season_closing": (10, 18),
+        "last_day": (11, 22),
+        "last_flowers": (11, 29),
+        "ended": (12, 6),
+    },
+    "Toothleaf Goldeneye": {
+        "first_flowers": (9, 13),
+        "beginning_flowering": (9, 20),
+        "full_bloom": (10, 4),
+        "peak_bloom": (10, 11),
+        "past_peak": (11, 1),
+        "season_closing": (12, 6),
+        "last_day": (12, 20),
+        "last_flowers": (12, 31),
+        "ended": (1, 7),
+    },
+    "Turk's Cap": {
+        "first_flowers": (3, 22),
+        "beginning_flowering": (3, 29),
+        "full_bloom": (8, 30),
+        "peak_bloom": (9, 6),
+        "past_peak": (9, 27),
+        "season_closing": (11, 8),
+        "last_day": (11, 29),
+        "last_flowers": (12, 6),
+        "ended": (12, 13),
+    },
+}
+
+WILDFLOWER_LABELS = {
+    "first_flowers": "First flowers",
+    "beginning_flowering": "Beginning of flowering",
+    "full_bloom": "Full bloom",
+    "peak_bloom": "Peak bloom",
+    "past_peak": "Past peak",
+    "season_closing": "Season closing",
+    "last_day": "Last day",
+    "last_flowers": "Last flowers",
+    "ended": "Season ended yesterday",
+}
+
 # ==================== SKYFIELD SETUP ====================
 load = Loader('./skyfield_data')
 eph = load('de421.bsp')
@@ -1013,6 +1183,66 @@ def inner_planet_event_annotation(name, today_dt, events, current_status=""):
     best = min(annotations, key=lambda x: x[0])
     return f" — {best[1]}"
 
+# ==================== WILDFLOWER HELPERS ====================
+
+def wildflower_status(events, today_dt):
+    """Return today's label for one wildflower species, or None if inactive."""
+    def doy(m, d):
+        return datetime(2024, m, d).timetuple().tm_yday
+
+    def dist(a, b):
+        d = b - a
+        return d + 365 if d < -180 else d
+
+    td = doy(today_dt.month, today_dt.day)
+
+    # Warnings before the season opens
+    du = dist(td, doy(*events["first_flowers"]))
+    if du == 1:
+        return "First flowers tomorrow"
+    if 2 <= du <= 7:
+        return "First flowers next week"
+
+    ff = doy(*events["first_flowers"])
+    bf = doy(*events["beginning_flowering"])
+    fb = doy(*events["full_bloom"])
+    pb = doy(*events["peak_bloom"])
+    pp = doy(*events["past_peak"])
+    sc = doy(*events["season_closing"])
+    ld = doy(*events["last_day"])
+    lf = doy(*events["last_flowers"])
+    end = doy(*events["ended"])
+
+    if dist(td, end) == 0:
+        return "Season ended yesterday"
+    if dist(td, lf) == 0:
+        return "Last flowers"
+    if dist(td, ld) == 0:
+        return "Last day"
+    if dist(td, sc) == 0:
+        return "Season closing"
+    if dist(td, pp) == 0:
+        return "Past peak"
+    if dist(td, pb) == 0:
+        return "Peak bloom"
+    if dist(td, fb) == 0:
+        return "Full bloom"
+    if dist(td, ff) == 0:
+        return "First flowers"
+    if ff <= td <= bf:
+        return "Beginning of flowering"
+    if bf < td <= fb:
+        return "Full bloom"
+    if fb < td <= pp:
+        return "Peak bloom"
+    if pp < td <= sc:
+        return "Past peak"
+    if sc < td <= ld:
+        return "Season closing"
+    if ld < td <= lf:
+        return "Last flowers"
+    return None
+
 # ==================== MAIN ====================
 
 def main():
@@ -1245,6 +1475,17 @@ def main():
     report += f"{rain_pct_line}\n"
     report += f"{wind_avg_line}\n"
     report += f"{wind_pct_line}\n\n"
+
+    # Wildflowers section — every active species prints its status every day
+    wildflower_lines = []
+    for wf_name in WILDFLOWER_ORDER:
+        status = wildflower_status(WILDFLOWER_EVENTS[wf_name], now)
+        if status:
+            wildflower_lines.append(f"- {wf_name}: {status}")
+    if wildflower_lines:
+        report += "### Wildflowers\n\n"
+        report += "\n".join(wildflower_lines) + "\n\n"
+
     report += f"Sources: Skyfield (JPL DE421 ephemeris), Open-Meteo"
 
     print(report)
