@@ -645,11 +645,11 @@ def get_weather():
             'avg_temp': 'N/A',
         }
 
-def send_ntfy_text(topic, message):
+def send_ntfy_text(topic, message, title="Austin Sky + Weather"):
     """Send text notification."""
     url = f"https://ntfy.sh/{topic}"
     headers = {
-        "Title": "Austin Sky + Weather",
+        "Title": title,
         "Priority": "default",
         "Markdown": "yes",
     }
@@ -1500,10 +1500,10 @@ def main():
     second_half = report[split_at:]
     first_half = report[:split_at]
 
-    send_ntfy_text(NTFY_TOPIC, second_half)
-    time.sleep(1)
+    send_ntfy_text(NTFY_TOPIC, second_half, title="Austin Sky + Weather — forecast & blooms")
+    time.sleep(3)
     send_ntfy_text(NTFY_TOPIC, first_half)
-    time.sleep(1)
+    time.sleep(3)
 
     # Send chart last so it lands on top of the notification stack
     if chart_ready:
