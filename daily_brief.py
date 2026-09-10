@@ -29,9 +29,11 @@ NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 # Minimum altitude to report as "meaningfully up."
 ALTITUDE_THRESHOLD = 15  # degrees
 
-# Temperature scale: 46.4°F = 0%, 88.3°F = 100%
-DAY_TEMP_MIN = 46.4
-DAY_TEMP_MAX = 88.3
+# Temperature scale: 28.04°F = 0%, 91.81°F = 100%
+# (averages of each year's lowest/highest daily-MEAN temperature,
+# Austin 2016-2025, Open-Meteo archive; daily mean = average of hourly readings)
+DAY_TEMP_MIN = 28.04
+DAY_TEMP_MAX = 91.81
 
 # Rain scale: 0 inches = 0%, 0.653 inches = 100%
 RAIN_MAX = 0.653
@@ -406,7 +408,7 @@ def get_weather():
         "?latitude=30.2672&longitude=-97.7431"
         "&current=temperature_2m"
         "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code"
-        "&hourly=wind_speed_10m,dewpoint_2m"
+        "&hourly=wind_speed_10m,dewpoint_2m,temperature_2m"
         "&timezone=America%2FChicago"
         "&forecast_days=1"
         "&temperature_unit=fahrenheit"
@@ -433,6 +435,10 @@ def get_weather():
         hourly_dew = data['hourly']['dewpoint_2m']
         avg_dew = sum(hourly_dew) / len(hourly_dew) if hourly_dew else 'N/A'
 
+        # Temperature: scalar average of all hourly readings for the day
+        hourly_temp = data['hourly']['temperature_2m']
+        avg_temp = sum(hourly_temp) / len(hourly_temp) if hourly_temp else 'N/A'
+
         if rain == 0:
             rain_str = "0.00 inches expected"
         elif rain < 0.01:
@@ -452,6 +458,7 @@ def get_weather():
             'rain_raw': rain,
             'avg_wind': avg_wind,
             'avg_dew': avg_dew,
+            'avg_temp': avg_temp,
         }
     except Exception as e:
         print(f"Weather fetch failed: {e}")
@@ -463,6 +470,7 @@ def get_weather():
             'rain_raw': 'N/A',
             'avg_wind': 'N/A',
             'avg_dew': 'N/A',
+            'avg_temp': 'N/A',
         }
 
 def send_ntfy_text(topic, message):
@@ -1126,9 +1134,8 @@ def main():
     weather = get_weather()
 
     # Calculated percentages
-    if weather['high'] != 'N/A' and weather['low'] != 'N/A':
-        avg_temp = (weather['high'] + weather['low']) / 2
-        day_temp_pct = ((avg_temp - DAY_TEMP_MIN) / (DAY_TEMP_MAX - DAY_TEMP_MIN)) * 100
+    if weather['avg_temp'] != 'N/A':
+        day_temp_pct = ((weather['avg_temp'] - DAY_TEMP_MIN) / (DAY_TEMP_MAX - DAY_TEMP_MIN)) * 100
         day_temp_line = f"- Temperature percent: {day_temp_pct:.1f}%"
     else:
         day_temp_line = "- Temperature percent: N/A"
