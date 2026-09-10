@@ -1500,7 +1500,7 @@ def main():
     second_half = report[split_at:]
     first_half = report[:split_at]
 
-    send_ntfy_text(NTFY_TOPIC, second_half, title="Austin Sky + Weather — forecast & blooms")
+    send_ntfy_text(NTFY_TOPIC, second_half, title="Austin Sky + Weather - forecast & blooms")
     time.sleep(3)
     send_ntfy_text(NTFY_TOPIC, first_half)
     time.sleep(3)
