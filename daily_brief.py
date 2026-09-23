@@ -697,6 +697,55 @@ def send_ntfy_image(topic, image_path, title):
     except Exception as e:
         print(f"Failed to send image: {e}")
 
+# ==================== SEASON EVENT HELPERS ====================
+
+SEASON_NAMES = {0: "spring equinox", 1: "summer solstice",
+                2: "fall equinox", 3: "winter solstice"}
+
+def season_event_notice(events, today):
+    """One label for the nearest real equinox/solstice, asymmetric schedule:
+    a month from today (calendar day), one day at 3 weeks out, one day at
+    2 weeks out, every day in the final week, tomorrow, today, yesterday."""
+    cands = []
+    for name, ev_d in events:
+        try:
+            month_before = date(today.year, ev_d.month - 1 if ev_d.month > 1 else 12, ev_d.day)
+        except ValueError:
+            month_before = None
+        du = (ev_d - today).days
+        if month_before == today:
+            cands.append((5, 32, f"{name} a month from today"))
+        elif du == 21:
+            cands.append((4, 21, f"{name} 3 weeks away"))
+        elif du == 14:
+            cands.append((3, 14, f"{name} 2 weeks away"))
+        elif 2 <= du <= 7:
+            cands.append((2, du, f"{name} this week"))
+        elif du == 1:
+            cands.append((1, 1, f"{name} tomorrow"))
+        elif du == 0:
+            cands.append((0, 0, f"{name} today"))
+        elif du == -1:
+            cands.append((1, -1, f"{name} yesterday"))
+    if not cands:
+        return ""
+    best = min(cands, key=lambda c: (c[0], c[1]))
+    return best[2]
+
+def season_event_line(today):
+    """Find the four real equinoxes/solstices (this year +/- 1) via the
+    ephemeris, return today's notice or ''."""
+    events = []
+    for yr in (today.year - 1, today.year, today.year + 1):
+        t0 = ts.from_datetime(datetime(yr, 1, 1, 0, 0, tzinfo=TZ))
+        t1 = ts.from_datetime(datetime(yr + 1, 1, 1, 0, 0, tzinfo=TZ))
+        times, evs = almanac.find_discrete(t0, t1, almanac.seasons(eph))
+        for ti, ev in zip(times, evs):
+            d = ti.utc_datetime().replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ).date()
+            events.append((SEASON_NAMES[int(ev)], d))
+    return season_event_notice(events, today)
+
+
 # ==================== THERMAL HELPERS ====================
 
 def thermal_solstice_pct(doy):
@@ -1561,6 +1610,11 @@ def main():
 
     if twilight_duration_line:
         report += f"{twilight_duration_line}\n\n"
+
+    # Real equinox/solstice announcement - own line at the foot of the section
+    season_line = season_event_line(today)
+    if season_line:
+        report += f"{season_line}\n\n"
 
     report += f"### Moon\n\n"
     report += f"{moon_info}\n"
