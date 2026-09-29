@@ -1437,9 +1437,11 @@ def pecan_lines(now, today):
 # ==================== PATTERN HELPERS ====================
 # Season + break-chance lines. One ruler for everything: the air-identity number
 # (theta-e), computed from temperature + dew point. Anchors from the 2016-2025
-# record (NASA POWER/MERRA-2, Austin): season bands cut from the average-year
-# curve (winter = bottom 20%, summer = top 40%); break-chance base = 3-harmonic
-# logistic fit of "lasting break within 7 days" (blind-year validated).
+# record (ERA5 1985-2025 via Open-Meteo, Austin; season anchors verified identical
+# to the 10-yr values): break-chance base = 2-harmonic
+# logistic fit of "lasting break within 7 days" trained on 948 events 1985-2025
+# (holdout-validated 2016-2025). Pressure-state term: +0.40 logit when trailing
+# 3-day MSLP fall exceeds 1.5 mb (beta measured on the full record).
 # Forecast modifier: combined signature (theta-e crash / wind reversal / heavy
 # rain) with a CONFIRMATION GUARD (the forecast's own post-event air must differ
 # from pre-event air by >=8 K theta-e -- rain without airmass change is rain,
@@ -1453,7 +1455,7 @@ SEASON_MID = 322.0          # transition midpoint -> spring/fall 100%
 SEASON_SUMMER_MIN = 337.0   # at/above -> summer
 SUMMER_PEAK_TE = 358      # decade's 98th-pct daily theta-e = Summer at its max
 WINTER_PEAK_TE = 286      # decade's 2nd-pct daily theta-e = Winter at its max
-BREAK_COEF = (-0.75167, 0.74060, 2.13869, -0.58664, -0.83173)  # const, sin, cos, sin2, cos2
+BREAK_COEF = (-0.43457, 0.38697, 2.05010, -0.44371, -0.86237)  # const, sin, cos, sin2, cos2 (41-yr ERA5 fit, 948 breaks)
 BREAK_WINDOW_DAYS = 7
 SIG_TE = 20.0               # 12h theta-e swing that counts as a break signature
 GUARD_TE = 8.0              # post-event minus pre-event air change that confirms a break
@@ -1510,8 +1512,8 @@ def pattern_lines(now, today):
     theta-e from pre-event air (unguarded rain/wind hits downgrade to soft).
     Shifts are season-stratified, stacked across firing days, capped."""
     url = ("https://api.open-meteo.com/v1/forecast?latitude=30.2672&longitude=-97.7431"
-           "&hourly=temperature_2m,dewpoint_2m,wind_direction_10m,wind_speed_10m,precipitation"
-           "&past_days=2&forecast_days=7&temperature_unit=fahrenheit&windspeed_unit=mph"
+           "&hourly=temperature_2m,dewpoint_2m,wind_direction_10m,wind_speed_10m,precipitation,pressure_msl"
+           "&past_days=4&forecast_days=7&temperature_unit=fahrenheit&windspeed_unit=mph"
            "&precipitation_unit=inch&timezone=America%2FChicago")
     try:
         d = requests.get(url, timeout=30).json()["hourly"]
@@ -1541,6 +1543,15 @@ def pattern_lines(now, today):
     line1 = f"- Season: {cur_season} {round(_season_strength(s_now, cur_season))}%"
 
     pct = _break_base_pct(doy)
+    # pressure state: trailing 3-day MSLP fall > 1.5 mb adds +0.40 logit
+    # (measured beta on 948 events; small but real at the 7-day horizon)
+    pm = d.get("pressure_msl") or []
+    if len(pm) == n and i_now >= 72:
+        p3 = [x for x in pm[i_now - 72:i_now] if x is not None]
+        p0 = [x for x in pm[max(0, i_now - 144):max(0, i_now - 72)] if x is not None]
+        if p3 and p0 and (sum(p3) / len(p3) - sum(p0) / len(p0)) < -1.5:
+            z_state = math.log(max(pct, 0.5) / max(100.0 - pct, 0.5)) + 0.40
+            pct = 100.0 / (1.0 + math.exp(-z_state))
     # season gate applies to the EVENT's day, not the issue day: a front landing
     # Oct 2 is a cool-season event even when issued in late September
     def _shifts_for(i):
