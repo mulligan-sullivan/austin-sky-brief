@@ -1434,6 +1434,138 @@ def pecan_lines(now, today):
             lines.append(f"- {label}: likely gleanings (season {pct}%)")
     return lines
 
+# ==================== PATTERN HELPERS ====================
+# Season + break-chance lines. One ruler for everything: the air-identity number
+# (theta-e), computed from temperature + dew point. Anchors from the 2016-2025
+# record (NASA POWER/MERRA-2, Austin): season bands cut from the average-year
+# curve (winter = bottom 20%, summer = top 40%); break-chance base = 3-harmonic
+# logistic fit of "lasting break within 7 days" (blind-year validated). The
+# forecast modifier uses conservative priors (archive calibration unavailable on
+# the free tier); sizes tuned live over time.
+SEASON_WINTER_MAX = 307.0   # theta-e (K): at/below -> winter
+SEASON_MID = 322.0          # transition midpoint -> spring/fall 100%
+SEASON_SUMMER_MIN = 337.0   # at/above -> summer
+SUMMER_PEAK_TE = 358      # decade's 98th-pct daily theta-e = Summer at its max
+WINTER_PEAK_TE = 286      # decade's 2nd-pct daily theta-e = Winter at its max
+BREAK_COEF = (-0.75167, 0.74060, 2.13869, -0.58664, -0.83173)  # const, sin, cos, sin2, cos2
+BREAK_WINDOW_DAYS = 7
+SIG_TE = 20.0               # 12h theta-e swing that counts as a break signature
+MODIFIER_SHIFT = {1: 0.9, 2: 0.9, 3: 0.45, 4: 0.45, 5: 0.2, 6: 0.2, 7: 0.2}
+
+def _theta_e_k(T_f, Td_f, p_mb=986.0):
+    T = (T_f - 32.0) * 5.0 / 9.0 + 273.15
+    Td = (Td_f - 32.0) * 5.0 / 9.0 + 273.15
+    e = 6.112 * math.exp(17.67 * (Td - 273.15) / (Td - 29.65))
+    r = 0.622 * e / (p_mb - e)
+    Tlcl = 2840.0 / (3.5 * math.log(T) - math.log(e) - 4.805) + 55.0
+    return T * (1000.0 / p_mb) ** (0.2854 * (1 - 0.28 * r)) * math.exp((3376.0 / Tlcl - 2.54) * r * (1 + 0.81 * r))
+
+def _season_of(te, doy, falling=None):
+    if te >= SEASON_SUMMER_MIN:
+        return "Summer"
+    if te <= SEASON_WINTER_MAX:
+        return "Winter"
+    if falling is not None:
+        return "Fall" if falling else "Spring"
+    return "Spring" if doy < 180 else "Fall"
+
+def _season_strength(te, name):
+    if name == "Summer":
+        v = 100.0 * (te - SEASON_SUMMER_MIN) / (SUMMER_PEAK_TE - SEASON_SUMMER_MIN)
+    elif name == "Winter":
+        v = 100.0 * (SEASON_WINTER_MAX - te) / (SEASON_WINTER_MAX - WINTER_PEAK_TE)
+    else:
+        v = 100.0 * (1.0 - abs(te - SEASON_MID) / 15.0)
+    return max(0.0, min(100.0, v))
+
+def _break_base_pct(doy):
+    c = BREAK_COEF
+    z = c[0] + c[1] * math.sin(2 * math.pi * doy / 365.25) + c[2] * math.cos(2 * math.pi * doy / 365.25) \
+        + c[3] * math.sin(4 * math.pi * doy / 365.25) + c[4] * math.cos(4 * math.pi * doy / 365.25)
+    return 100.0 / (1.0 + math.exp(-z))
+
+def pattern_lines(now, today):
+    """Season name+strength, and 7-day break chance with direction/origin/into tail."""
+    url = ("https://api.open-meteo.com/v1/forecast?latitude=30.2672&longitude=-97.7431"
+           "&hourly=temperature_2m,dewpoint_2m,wind_direction_10m,wind_speed_10m"
+           "&past_days=2&forecast_days=7&temperature_unit=fahrenheit&windspeed_unit=mph"
+           "&timezone=America%2FChicago")
+    try:
+        d = requests.get(url, timeout=30).json()["hourly"]
+    except Exception as e:
+        print(f"Pattern fetch failed: {e}")
+        return []
+    times = d["time"]
+    T = list(d["temperature_2m"])
+    Td = list(d["dewpoint_2m"])
+    wd = list(d["wind_direction_10m"])
+    ws = list(d["wind_speed_10m"])
+    if any(len(x) != len(times) for x in (T, Td, wd, ws)):
+        return []
+    tes = [(_theta_e_k(a, b) if (a is not None and b is not None) else None) for a, b in zip(T, Td)]
+    n = len(times)
+    now_str = now.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M")
+    i_now = next((i for i, t in enumerate(times) if t > now_str), n - 1)
+
+    # Season line from the 24 hours ENDING at now (trailing, not future)
+    win = [t for t in tes[max(0, i_now - 24):i_now] if t is not None]
+    if not win:
+        return []
+    s_now = sum(win) / len(win)
+    doy = today.timetuple().tm_yday
+    cur_season = _season_of(s_now, doy)
+    line1 = f"- Season: {cur_season} {round(_season_strength(s_now, cur_season))}%"
+
+    # Break chance: seasonal base + forecast-signature modifier
+    pct = _break_base_pct(doy)
+    tail = ""
+    hit = None
+    delta = 0.0
+    for i in range(max(12, i_now + 1), n):
+        if tes[i] is None or tes[i - 12] is None:
+            continue
+        dv = tes[i] - tes[i - 12]
+        if abs(dv) >= SIG_TE:
+            hit, delta = i, dv
+            break
+    if hit is not None:
+        hit_dt = datetime.strptime(times[hit], "%Y-%m-%dT%H:%M")
+        lead = max(1, min(7, round((hit_dt - now.replace(tzinfo=None)).total_seconds() / 86400.0)))
+        z0 = math.log(max(pct, 0.5) / max(100.0 - pct, 0.5))
+        pct = 100.0 / (1.0 + math.exp(-(z0 + MODIFIER_SHIFT[lead])))
+        pre = list(range(max(0, hit - 24), hit))
+        post = list(range(min(n, hit + 30), min(n, hit + 54)))
+        post = [j for j in post if T[j] is not None]
+        if pre and post:
+            dT = sum(T[j] for j in post) / len(post) - sum(T[j] for j in pre) / len(pre)
+            dTd = sum(Td[j] for j in post) / len(post) - sum(Td[j] for j in pre) / len(pre)
+            mwd = sum(wd[j] for j in post) / len(post)
+            mws = sum(ws[j] for j in post) / len(post)
+            words = ["cooler" if dT < 0 else "warmer", "drier" if dTd < 0 else "wetter"]
+            origin = None
+            if mws >= 8:
+                if 300 <= mwd or mwd < 60:
+                    origin = "northern plains" if dT < 0 else None
+                elif 120 <= mwd < 210:
+                    origin = "Gulf" if dT > 0 else None
+                elif 240 <= mwd < 300:
+                    origin = "desert"
+            if origin:
+                words.append(f"from the {origin}")
+            post_te_vals = [tes[j] for j in post if tes[j] is not None]
+            if post_te_vals:
+                post_te = sum(post_te_vals) / len(post_te_vals)
+                tgt = _season_of(post_te, doy, falling=(delta < 0))
+                margin_ok = ((tgt == "Summer" and post_te >= SEASON_SUMMER_MIN + 3)
+                             or (tgt == "Winter" and post_te <= SEASON_WINTER_MAX - 3)
+                             or tgt in ("Spring", "Fall"))
+                if tgt != cur_season and margin_ok:
+                    words.append(f"into {tgt.lower()}")
+            tail = " — " + ", ".join(words)
+    pct = max(1, min(97, round(pct)))
+    line2 = f"- Break chance this week: {pct}%{tail}"
+    return [line1, line2]
+
 # ==================== MAIN ====================
 
 def main():
@@ -1670,7 +1802,12 @@ def main():
     report += f"- Rain: {weather['rain_str']}\n"
     report += f"{rain_pct_line}\n"
     report += f"{wind_avg_line}\n"
-    report += f"{wind_pct_line}\n\n"
+    report += f"{wind_pct_line}\n"
+    # Pattern lines at the foot of the Weather block
+    pattern = pattern_lines(now, today)
+    if pattern:
+        report += "\n".join(pattern) + "\n"
+    report += "\n"
     # Nature section - Pecans above Wildflowers; printed only when something is active
     pecan = pecan_lines(now, today)
     wildflower_lines = []
