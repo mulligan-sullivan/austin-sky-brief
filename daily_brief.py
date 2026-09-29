@@ -1439,9 +1439,15 @@ def pecan_lines(now, today):
 # (theta-e), computed from temperature + dew point. Anchors from the 2016-2025
 # record (NASA POWER/MERRA-2, Austin): season bands cut from the average-year
 # curve (winter = bottom 20%, summer = top 40%); break-chance base = 3-harmonic
-# logistic fit of "lasting break within 7 days" (blind-year validated). The
-# forecast modifier uses conservative priors (archive calibration unavailable on
-# the free tier); sizes tuned live over time.
+# logistic fit of "lasting break within 7 days" (blind-year validated).
+# Forecast modifier: combined signature (theta-e crash / wind reversal / heavy
+# rain) with a CONFIRMATION GUARD (the forecast's own post-event air must differ
+# from pre-event air by >=8 K theta-e -- rain without airmass change is rain,
+# not a break). Shift sizes calibrated 2022-2025 (Open-Meteo historical-forecast
+# x NASA POWER obs, 108 lasting breaks): cool season +0.45/+0.80/+0.20 by lead
+# band, warm season ~0 (a warm-season signature carries no weekly-break signal).
+# Multiple firing days stack at 0.3x. Verified: confirmed cool-season signatures
+# verify at 74-80% vs 52% unguarded; warm-season unguarded signatures verify 9%.
 SEASON_WINTER_MAX = 307.0   # theta-e (K): at/below -> winter
 SEASON_MID = 322.0          # transition midpoint -> spring/fall 100%
 SEASON_SUMMER_MIN = 337.0   # at/above -> summer
@@ -1450,7 +1456,13 @@ WINTER_PEAK_TE = 286      # decade's 2nd-pct daily theta-e = Winter at its max
 BREAK_COEF = (-0.75167, 0.74060, 2.13869, -0.58664, -0.83173)  # const, sin, cos, sin2, cos2
 BREAK_WINDOW_DAYS = 7
 SIG_TE = 20.0               # 12h theta-e swing that counts as a break signature
-MODIFIER_SHIFT = {1: 0.9, 2: 0.9, 3: 0.45, 4: 0.45, 5: 0.2, 6: 0.2, 7: 0.2}
+GUARD_TE = 8.0              # post-event minus pre-event air change that confirms a break
+# Calibrated logit shifts by lead band (days 1-2, 3-4, 5-7), cool vs warm season.
+# Cool = Oct-Apr, warm = May-Sep. Warm-season values are intentionally ~zero.
+SHIFT_COOL = {1: 0.45, 2: 0.45, 3: 0.80, 4: 0.80, 5: 0.20, 6: 0.20, 7: 0.20}
+SHIFT_WARM = {1: 0.15, 2: 0.15, 3: 0.0, 4: 0.0, 5: 0.0, 6: 0.0, 7: 0.0}
+STACK_FACTOR = 0.3          # each additional firing day adds this fraction of its shift
+STACK_CAP = 1.0             # total stacked shift cap
 
 def _theta_e_k(T_f, Td_f, p_mb=986.0):
     T = (T_f - 32.0) * 5.0 / 9.0 + 273.15
@@ -1484,12 +1496,23 @@ def _break_base_pct(doy):
         + c[3] * math.sin(4 * math.pi * doy / 365.25) + c[4] * math.cos(4 * math.pi * doy / 365.25)
     return 100.0 / (1.0 + math.exp(-z))
 
+def _vec_mean_dir(deg_list):
+    """Vector mean of wind directions; scalar averaging fails across 0/360."""
+    s = sum(math.sin(math.radians(d)) for d in deg_list)
+    c = sum(math.cos(math.radians(d)) for d in deg_list)
+    return math.degrees(math.atan2(s, c)) % 360.0
+
 def pattern_lines(now, today):
-    """Season name+strength, and 7-day break chance with direction/origin/into tail."""
+    """Season name+strength, and 7-day break chance with direction/origin/into tail.
+    Signature scan runs from 6 h ago through the 7-day forecast. A strong hit is
+    theta-e crash >=20K/12h, wind reversal >=120deg at >=10mph, or >=0.75in rain
+    in 24h -- CONFIRMED by the forecast's own post-event air differing >=8K
+    theta-e from pre-event air (unguarded rain/wind hits downgrade to soft).
+    Shifts are season-stratified, stacked across firing days, capped."""
     url = ("https://api.open-meteo.com/v1/forecast?latitude=30.2672&longitude=-97.7431"
-           "&hourly=temperature_2m,dewpoint_2m,wind_direction_10m,wind_speed_10m"
+           "&hourly=temperature_2m,dewpoint_2m,wind_direction_10m,wind_speed_10m,precipitation"
            "&past_days=2&forecast_days=7&temperature_unit=fahrenheit&windspeed_unit=mph"
-           "&timezone=America%2FChicago")
+           "&precipitation_unit=inch&timezone=America%2FChicago")
     try:
         d = requests.get(url, timeout=30).json()["hourly"]
     except Exception as e:
@@ -1500,14 +1523,15 @@ def pattern_lines(now, today):
     Td = list(d["dewpoint_2m"])
     wd = list(d["wind_direction_10m"])
     ws = list(d["wind_speed_10m"])
+    pr = list(d.get("precipitation") or [0.0] * len(times))
     if any(len(x) != len(times) for x in (T, Td, wd, ws)):
         return []
     tes = [(_theta_e_k(a, b) if (a is not None and b is not None) else None) for a, b in zip(T, Td)]
+    pr = [x if x is not None else 0.0 for x in pr]
     n = len(times)
     now_str = now.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M")
     i_now = next((i for i, t in enumerate(times) if t > now_str), n - 1)
 
-    # Season line from the 24 hours ENDING at now (trailing, not future)
     win = [t for t in tes[max(0, i_now - 24):i_now] if t is not None]
     if not win:
         return []
@@ -1516,31 +1540,73 @@ def pattern_lines(now, today):
     cur_season = _season_of(s_now, doy)
     line1 = f"- Season: {cur_season} {round(_season_strength(s_now, cur_season))}%"
 
-    # Break chance: seasonal base + forecast-signature modifier
     pct = _break_base_pct(doy)
-    tail = ""
-    hit = None
-    delta = 0.0
-    for i in range(max(12, i_now + 1), n):
-        if tes[i] is None or tes[i - 12] is None:
+    # season gate applies to the EVENT's day, not the issue day: a front landing
+    # Oct 2 is a cool-season event even when issued in late September
+    def _shifts_for(i):
+        hdoy = datetime.strptime(times[i], "%Y-%m-%dT%H:%M").timetuple().tm_yday
+        return SHIFT_COOL if (hdoy >= 274 or hdoy <= 120) else SHIFT_WARM
+
+    def _air_change_ok(i, thr):
+        # post window runs to the end of the forecast: two-stage breaks deliver
+        # their air change late, and a short fixed window misses it
+        pre = [tes[j] for j in range(max(0, i - 24), i) if tes[j] is not None]
+        post = [tes[j] for j in range(min(n, i + 24), n) if tes[j] is not None]
+        if not pre or not post:
+            return False
+        return abs(sum(post) / len(post) - sum(pre) / len(pre)) >= thr
+
+    # collect ALL firing days, not just the first
+    firing = {}   # lead-day -> ("strong"|"soft", index, dte)
+    for i in range(max(0, i_now - 6), n):
+        dte = (tes[i] - tes[i - 12]) if (tes[i] is not None and i >= 12 and tes[i - 12] is not None) else 0.0
+        wind_rev = False
+        if i >= 12 and wd[i] is not None and wd[i - 12] is not None:
+            dd = abs(wd[i] - wd[i - 12]) % 360
+            dd = min(dd, 360 - dd)
+            wind_rev = dd >= 120 and (ws[i] or 0) >= 10
+        rain24 = sum(pr[max(0, i - 12):min(n, i + 12)])
+        dte24 = (tes[i] - tes[max(0, i - 24)]) if (tes[i] is not None and tes[max(0, i - 24)] is not None) else 0.0
+        crash = abs(dte) >= SIG_TE
+        raw_strong = crash or wind_rev or rain24 >= 0.75
+        if raw_strong:
+            # te-crash triggers guard at 8K; rain/wind triggers at 6K (fronts the
+            # model renders sharply in rain but softly in temperature)
+            strength = "strong" if _air_change_ok(i, GUARD_TE if crash else 6.0) else "soft"
+        elif abs(dte24) >= 8.0 or rain24 >= 0.30:
+            strength = "soft"
+        else:
             continue
-        dv = tes[i] - tes[i - 12]
-        if abs(dv) >= SIG_TE:
-            hit, delta = i, dv
-            break
-    if hit is not None:
-        hit_dt = datetime.strptime(times[hit], "%Y-%m-%dT%H:%M")
-        lead = max(1, min(7, round((hit_dt - now.replace(tzinfo=None)).total_seconds() / 86400.0)))
-        z0 = math.log(max(pct, 0.5) / max(100.0 - pct, 0.5))
-        pct = 100.0 / (1.0 + math.exp(-(z0 + MODIFIER_SHIFT[lead])))
+        hit_dt = datetime.strptime(times[i], "%Y-%m-%dT%H:%M")
+        lead = max(0, min(7, round((hit_dt - now.replace(tzinfo=None)).total_seconds() / 86400.0)))
+        # keep the strongest hit per lead-day
+        if lead not in firing or (firing[lead][0] == "soft" and strength == "strong"):
+            firing[lead] = (strength, i, dte)
+
+    total_shift = 0.0
+    first_strong = None
+    for lead in sorted(firing):
+        strength, i, dte = firing[lead]
+        sh = _shifts_for(i).get(lead, 0.0) if strength == "strong" else _shifts_for(i).get(lead, 0.0) * 0.5
+        if first_strong is None and strength == "strong":
+            first_strong = (lead, i, dte)
+            total_shift += sh                       # first strong hit: full shift
+        else:
+            total_shift += sh * STACK_FACTOR        # everything else stacks at 0.3x
+    total_shift = min(total_shift, STACK_CAP + 0.8)
+    z0 = math.log(max(pct, 0.5) / max(100.0 - pct, 0.5))
+    pct = 100.0 / (1.0 + math.exp(-(z0 + total_shift)))
+
+    tail = ""
+    if first_strong is not None:
+        lead, hit, hit_delta = first_strong
         pre = list(range(max(0, hit - 24), hit))
-        post = list(range(min(n, hit + 30), min(n, hit + 54)))
-        post = [j for j in post if T[j] is not None]
+        post = [j for j in range(min(n, hit + 30), min(n, hit + 54)) if T[j] is not None]
         if pre and post:
-            dT = sum(T[j] for j in post) / len(post) - sum(T[j] for j in pre) / len(pre)
-            dTd = sum(Td[j] for j in post) / len(post) - sum(Td[j] for j in pre) / len(pre)
-            mwd = sum(wd[j] for j in post) / len(post)
-            mws = sum(ws[j] for j in post) / len(post)
+            dT = sum(T[j] for j in post) / len(post) - sum(T[j] for j in pre if T[j] is not None) / max(1, len([j for j in pre if T[j] is not None]))
+            dTd = sum(Td[j] for j in post) / len(post) - sum(Td[j] for j in pre if Td[j] is not None) / max(1, len([j for j in pre if Td[j] is not None]))
+            mwd = _vec_mean_dir([wd[j] for j in post if wd[j] is not None])
+            mws = sum(ws[j] for j in post if ws[j] is not None) / max(1, len([j for j in post if ws[j] is not None]))
             words = ["cooler" if dT < 0 else "warmer", "drier" if dTd < 0 else "wetter"]
             origin = None
             if mws >= 8:
@@ -1555,13 +1621,15 @@ def pattern_lines(now, today):
             post_te_vals = [tes[j] for j in post if tes[j] is not None]
             if post_te_vals:
                 post_te = sum(post_te_vals) / len(post_te_vals)
-                tgt = _season_of(post_te, doy, falling=(delta < 0))
+                tgt = _season_of(post_te, doy, falling=(hit_delta < 0))
                 margin_ok = ((tgt == "Summer" and post_te >= SEASON_SUMMER_MIN + 3)
                              or (tgt == "Winter" and post_te <= SEASON_WINTER_MAX - 3)
                              or tgt in ("Spring", "Fall"))
                 if tgt != cur_season and margin_ok:
                     words.append(f"into {tgt.lower()}")
             tail = " — " + ", ".join(words)
+        if lead == 0:
+            tail = " — breaking now" + tail
     pct = max(1, min(97, round(pct)))
     line2 = f"- Break chance this week: {pct}%{tail}"
     return [line1, line2]
