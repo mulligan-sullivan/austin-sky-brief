@@ -1439,8 +1439,9 @@ def pecan_lines(now, today):
 # (theta-e), computed from temperature + dew point. Anchors from the 2016-2025
 # record (ERA5 1985-2025 via Open-Meteo, Austin; season anchors verified identical
 # to the 10-yr values): break-chance base = 2-harmonic
-# logistic fit of "lasting break within 7 days" trained on 948 events 1985-2025
-# (holdout-validated 2016-2025). Pressure-state term: +0.40 logit when trailing
+# logistic fit of "lasting break within 7 days" trained on 432 events 2005-2025
+# (recent era chosen deliberately: break curve is climate-stable except a March
+# cell +12pts in the modern record; full 1985-2025 record used for validation). Pressure-state term: +0.40 logit when trailing
 # 3-day MSLP fall exceeds 1.5 mb (beta measured on the full record).
 # Forecast modifier: combined signature (theta-e crash / wind reversal / heavy
 # rain) with a CONFIRMATION GUARD (the forecast's own post-event air must differ
@@ -1455,7 +1456,7 @@ SEASON_MID = 322.0          # transition midpoint -> spring/fall 100%
 SEASON_SUMMER_MIN = 337.0   # at/above -> summer
 SUMMER_PEAK_TE = 358      # decade's 98th-pct daily theta-e = Summer at its max
 WINTER_PEAK_TE = 286      # decade's 2nd-pct daily theta-e = Winter at its max
-BREAK_COEF = (-0.43457, 0.38697, 2.05010, -0.44371, -0.86237)  # const, sin, cos, sin2, cos2 (41-yr ERA5 fit, 948 breaks)
+BREAK_COEF = (-0.47791, 0.49297, 2.36144, -0.42636, -1.02315)  # const, sin, cos, sin2, cos2 (ERA5 2005-2025, 432 breaks; recent-era fit avoids climate-drift skew, 41-yr record used for validation)
 BREAK_WINDOW_DAYS = 7
 SIG_TE = 20.0               # 12h theta-e swing that counts as a break signature
 GUARD_TE = 8.0              # post-event minus pre-event air change that confirms a break
