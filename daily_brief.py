@@ -1541,7 +1541,7 @@ def pattern_lines(now, today):
     s_now = sum(win) / len(win)
     doy = today.timetuple().tm_yday
     cur_season = _season_of(s_now, doy)
-    line1 = f"- Season: {cur_season} {round(_season_strength(s_now, cur_season))}%"
+    line1 = f"- Season (past 24h): {cur_season} {round(_season_strength(s_now, cur_season))}%"
 
     pct = _break_base_pct(doy)
     # pressure state: trailing 3-day MSLP fall > 1.5 mb adds +0.40 logit
