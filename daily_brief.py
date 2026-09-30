@@ -1454,8 +1454,8 @@ def pecan_lines(now, today):
 SEASON_WINTER_MAX = 307.0   # theta-e (K): at/below -> winter
 SEASON_MID = 322.0          # transition midpoint -> spring/fall 100%
 SEASON_SUMMER_MIN = 337.0   # at/above -> summer
-SUMMER_PEAK_TE = 358      # decade's 98th-pct daily theta-e = Summer at its max
-WINTER_PEAK_TE = 286      # decade's 2nd-pct daily theta-e = Winter at its max
+SUMMER_PEAK_TE = 360      # decade's average hottest: 98th-pct daily theta-e of Jun-Sep
+WINTER_PEAK_TE = 278      # decade's average coldest: 2nd-pct daily theta-e of Dec-Feb
 BREAK_COEF = (-0.47791, 0.49297, 2.36144, -0.42636, -1.02315)  # const, sin, cos, sin2, cos2 (ERA5 2005-2025, 432 breaks; recent-era fit avoids climate-drift skew, 41-yr record used for validation)
 BREAK_WINDOW_DAYS = 7
 SIG_TE = 20.0               # 12h theta-e swing that counts as a break signature
@@ -1485,13 +1485,13 @@ def _season_of(te, doy, falling=None):
     return "Spring" if doy < 180 else "Fall"
 
 def _season_strength(te, name):
+    # 100 = the decade's average extreme (98th-pct hot / 2nd-pct cold). Overruns
+    # display raw, like every other percent in the brief: 125% = beyond-record heat.
     if name == "Summer":
-        v = 100.0 * (te - SEASON_SUMMER_MIN) / (SUMMER_PEAK_TE - SEASON_SUMMER_MIN)
-    elif name == "Winter":
-        v = 100.0 * (SEASON_WINTER_MAX - te) / (SEASON_WINTER_MAX - WINTER_PEAK_TE)
-    else:
-        v = 100.0 * (1.0 - abs(te - SEASON_MID) / 15.0)
-    return max(0.0, min(100.0, v))
+        return 100.0 * (te - SEASON_SUMMER_MIN) / (SUMMER_PEAK_TE - SEASON_SUMMER_MIN)
+    if name == "Winter":
+        return 100.0 * (SEASON_WINTER_MAX - te) / (SEASON_WINTER_MAX - WINTER_PEAK_TE)
+    return 100.0 * (1.0 - abs(te - SEASON_MID) / 15.0)
 
 def _break_base_pct(doy):
     c = BREAK_COEF
