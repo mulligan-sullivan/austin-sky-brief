@@ -253,6 +253,129 @@ PECAN_FREEZE_START_DOY = 275  # Oct 2 - earliest a freeze can cut/announce
 # ("likely ready in 3 weeks" etc.) before the crossing happens.
 PECAN_GDD_NORMAL_WEEKLY = [12, 42, 75, 103, 134, 190, 231, 287, 357, 443, 542, 641, 764, 887, 1010, 1148, 1287, 1452, 1622, 1802, 1997, 2201, 2408, 2635, 2875, 3113, 3356, 3601, 3854, 4111, 4364, 4621, 4886, 5147, 5395, 5633, 5848, 6072, 6292, 6483, 6675, 6839, 6992, 7104, 7222, 7309, 7396, 7460, 7517, 7564, 7609, 7662, 7698]
 
+# ==================== SPACE EXPLORATION ====================
+# Active interplanetary missions: en-route gravity assists (short ladder:
+# in 3 days / in 2 days / tomorrow / today / yesterday) and terminal
+# arrivals (full Venus-style ladder: a month from today, 3 weeks away,
+# 2 weeks away, this week, tomorrow, today, yesterday, in the past week,
+# then silence forever). One terminal event per mission. Dates verified
+# Oct 2026 against NASA/ESA/CNSA mission pages; treat as scheduled, not
+# ephemeris-grade - agencies slip. Maintenance: edit rows when missions
+# launch, arrive, or slip.
+MISSIONS = {
+    "BepiColombo": {
+        "arrival": (2026, 11, 21),
+        "arrival_label": "Mercury orbit insertion",
+        "assists": [],
+    },
+    "Hera": {
+        # ESA: arrival Nov 25, 2026 - a month ahead of the original
+        # December plan thanks to a more aggressive braking schedule.
+        "arrival": (2026, 11, 25),
+        "arrival_label": "arrival at Didymos",
+        "assists": [],
+    },
+    "Europa Clipper": {
+        "arrival": (2030, 4, 11),
+        "arrival_label": "Jupiter arrival",
+        "assists": [(2026, 12, 3, "Earth", 2, 2)],
+    },
+    "Juice": {
+        # Sept 28, 2026 Earth flyby already flown (closest approach
+        # 11:45 UTC); Jan 18, 2029 is the third and final Earth flyby;
+        # Jupiter arrival July 21, 2031 (ESA mission calendar).
+        "arrival": (2031, 7, 21),
+        "arrival_label": "Jupiter arrival",
+        "assists": [(2026, 9, 28, "Earth", 2, 3),
+                    (2029, 1, 18, "Earth", 3, 3)],
+    },
+    "Lucy": {
+        # Flyby dates UTC; NASA's public page lists Eurybates as Aug 11
+        # and Polymele as Sept 14 in US Eastern. Patroclus-Menoetius:
+        # NASA says Mar 3, 2033; the mission paper says Mar 2.
+        "arrival": (2033, 3, 3),
+        "arrival_label": "Patroclus-Menoetius flyby",
+        "assists": [(2027, 8, 12, "Eurybates", 1, 8),
+                    (2027, 9, 15, "Polymele", 3, 8),
+                    (2028, 4, 18, "Leucus", 2, 8),
+                    (2028, 11, 11, "Orus", 4, 8),
+                    (2030, 12, 26, "Earth", None, None)],
+    },
+    "Psyche": {
+        # Gravity capture expected late July 2029; first science orbit
+        # August 2029. Aug 1 is the nominal placeholder.
+        "arrival": (2029, 8, 1),
+        "arrival_label": "arrival at Psyche",
+        "assists": [],
+    },
+    "OSIRIS-APEX": {
+        "arrival": (2029, 4, 21),
+        "arrival_label": "rendezvous with Apophis",
+        "assists": [],
+    },
+    "Tianwen-2": {
+        "arrival": (2027, 11, 29),
+        "arrival_label": "sample return (Earth)",
+        "assists": [],
+    },
+}
+
+def space_exploration_lines(today):
+    """One line per mission with an active countdown, or [] if none.
+    Plain date arithmetic (windows are <= 31 days, so no day-of-year
+    wraparound handling needed - unlike the calendar-season wildflowers,
+    these events know their year)."""
+    lines = []
+    for mission, data in MISSIONS.items():
+        # Assists first: the short ladder only, one line per mission.
+        for (y, mo, d, body, idx, total) in data["assists"]:
+            du = (date(y, mo, d) - today).days
+            if du == 3:
+                countdown = "in 3 days"
+            elif du == 2:
+                countdown = "in 2 days"
+            elif du == 1:
+                countdown = "tomorrow"
+            elif du == 0:
+                countdown = "today"
+            elif du == -1:
+                countdown = "yesterday"
+            else:
+                continue
+            suffix = f" (assist {idx} of {total})" if idx is not None else ""
+            lines.append(f"- {mission}: {body} flyby {countdown}{suffix}")
+            break
+        else:
+            # Arrivals: the full Venus-style ladder, then silence forever.
+            ay, am, ad = data["arrival"]
+            du = (date(ay, am, ad) - today).days
+            # Calendar "a month from today" - same month-day check as
+            # season_event_notice (calendar day, previous month).
+            try:
+                month_before = date(today.year, am - 1 if am > 1 else 12, ad)
+            except ValueError:
+                month_before = None
+            if month_before == today:
+                countdown = "a month from today"
+            elif du == 21:
+                countdown = "3 weeks away"
+            elif du == 14:
+                countdown = "2 weeks away"
+            elif 2 <= du <= 7:
+                countdown = "this week"
+            elif du == 1:
+                countdown = "tomorrow"
+            elif du == 0:
+                countdown = "today"
+            elif du == -1:
+                countdown = "yesterday"
+            elif -7 <= du <= -2:
+                countdown = "in the past week"
+            else:
+                continue
+            lines.append(f"- {mission}: {data['arrival_label']} {countdown}")
+    return lines
+
 # ==================== SKYFIELD SETUP ====================
 load = Loader('./skyfield_data')
 eph = load('de421.bsp')
@@ -1870,6 +1993,12 @@ def main():
         anno = inner_planet_event_annotation(name, now, data['events'], data['status'])
         report += f"- {name}: {data['status']}{anno}\n"
     report += "\n"
+
+    # Space exploration subsection - en-route flybys and terminal arrivals
+    space_lines = space_exploration_lines(today)
+    if space_lines:
+        report += "### Space exploration\n\n"
+        report += "\n".join(space_lines) + "\n\n"
 
     report += f"### Weather\n\n"
     report += f"- Current temperature: {weather['current']}°F\n"
