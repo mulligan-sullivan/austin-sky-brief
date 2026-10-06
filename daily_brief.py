@@ -1988,14 +1988,37 @@ def pattern_lines(now, today):
             if origin:
                 words.append(f"from the {origin}")
             post_te_vals = [tes[j] for j in post if tes[j] is not None]
-            if post_te_vals:
+            pre_te_vals = [tes[j] for j in pre if tes[j] is not None]
+            if post_te_vals and pre_te_vals:
                 post_te = sum(post_te_vals) / len(post_te_vals)
-                tgt = _season_of(post_te, doy, falling=(hit_delta < 0))
-                margin_ok = ((tgt == "Summer" and post_te >= SEASON_SUMMER_MIN + 3)
-                             or (tgt == "Winter" and post_te <= SEASON_WINTER_MAX - 3)
-                             or tgt in ("Spring", "Fall"))
-                if tgt != cur_season and margin_ok:
-                    words.append(f"into {tgt.lower()}")
+                pre_te = sum(pre_te_vals) / len(pre_te_vals)
+                # Zone transitions only, 2 K margin past each threshold.
+                # Band name comes from the calendar half. "toward" =
+                # entering a zone from outside; "back toward" = re-entering
+                # a regime from the band (summer/winter pair). Same-zone
+                # breaks and band-to-band stays print nothing.
+                MARGIN = 2.0
+                band_name = "fall" if doy >= 180 else "spring"
+
+                def _zone(te):
+                    if te >= SEASON_SUMMER_MIN + MARGIN:
+                        return "summer"
+                    if te <= SEASON_WINTER_MAX - MARGIN:
+                        return "winter"
+                    return "band"
+
+                z_pre, z_post = _zone(pre_te), _zone(post_te)
+                if z_pre != z_post:
+                    if z_post == "band":
+                        words.append(f"toward {band_name}")
+                    elif z_pre == "band" and z_post == "summer":
+                        words.append("back toward summer")
+                    elif z_pre == "band" and z_post == "winter":
+                        words.append("back toward winter")
+                    elif z_post == "summer":
+                        words.append("toward summer")
+                    elif z_post == "winter":
+                        words.append("toward winter")
             tail = " — " + ", ".join(words)
         if lead == 0:
             tail = " — breaking now" + tail
