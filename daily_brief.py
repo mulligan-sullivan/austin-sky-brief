@@ -1054,44 +1054,63 @@ def _refine_extremum(planet, start_dt, end_dt, find_max=True):
     return best_dt, best_val
 
 def find_opposition_events(planet, start_dt, days=1460):
-    """Find opposition events for an outer planet over a ~4-year window."""
+    """Find opposition events for an outer planet over a ~4-year window.
+    Opposition = the planet-sun ecliptic-longitude difference passing
+    through 180 deg. The longitude gap is tracked in [0, 360) so that the
+    crossing itself is continuous and can be refined directly; the ~360-deg
+    seam jump at conjunction is filtered out (a real crossing moves well
+    under a degree between 12-hour samples). Refinement minimizes the
+    distance FROM 180 deg (the previous version minimized |diff| in mapped
+    (-180, 180] coordinates, where the true moment is a cusp MAXIMUM --
+    it kept the 12-hour bin edge instead, up to half a day off, and flipped
+    calendar dates whenever an opposition fell near local midnight)."""
     events = []
-    
+
+    def _rel(t):
+        t_s = ts.from_datetime(t)
+        sun_app = observer.at(t_s).observe(sun).apparent()
+        planet_app = observer.at(t_s).observe(planet).apparent()
+        sun_lon = sun_app.ecliptic_latlon(epoch=None)[1].degrees
+        planet_lon = planet_app.ecliptic_latlon(epoch=None)[1].degrees
+        return (planet_lon - sun_lon) % 360.0
+
     # Sample every 12 hours
     samples = []
     current = start_dt
     end = start_dt + timedelta(days=days)
     while current <= end:
-        t = ts.from_datetime(current)
-        sun_app = observer.at(t).observe(sun).apparent()
-        planet_app = observer.at(t).observe(planet).apparent()
-        sun_lon = sun_app.ecliptic_latlon(epoch=None)[1].degrees
-        planet_lon = planet_app.ecliptic_latlon(epoch=None)[1].degrees
-        diff = (planet_lon - sun_lon + 180) % 360 - 180
-        samples.append((current, diff))
+        samples.append((current, _rel(current)))
         current += timedelta(hours=12)
-    
-    # Find zero crossings of diff = 0 (opposition)
+
     for i in range(len(samples) - 1):
-        if samples[i][1] * samples[i+1][1] < 0:  # Sign change = crossing 180°
-            # Refine
-            best_dt = samples[i][0]
-            best_diff = abs(samples[i][1])
-            current = samples[i][0]
-            while current <= samples[i+1][0]:
-                t = ts.from_datetime(current)
-                sun_app = observer.at(t).observe(sun).apparent()
-                planet_app = observer.at(t).observe(planet).apparent()
-                sun_lon = sun_app.ecliptic_latlon(epoch=None)[1].degrees
-                planet_lon = planet_app.ecliptic_latlon(epoch=None)[1].degrees
-                diff = (planet_lon - sun_lon + 180) % 360 - 180
-                if abs(diff) < best_diff:
-                    best_diff = abs(diff)
-                    best_dt = current
-                current += timedelta(hours=1)
-            
-            events.append((best_dt, "opposition", "opposition"))
-    
+        r0, r1 = samples[i][1], samples[i + 1][1]
+        if abs(r1 - r0) >= 10.0:
+            continue  # seam jump (conjunction), never a crossing of 180
+        crossed = (r0 < 180.0 <= r1) or (r1 < 180.0 <= r0)
+        if not crossed:
+            continue
+        # Refine in two stages: hourly across the bin, then 5-minute around
+        # the best hour. Event time lands within minutes of true opposition,
+        # so the calendar date is stable.
+        best_dt = samples[i][0]
+        best_err = abs(r0 - 180.0)
+        current = samples[i][0] + timedelta(hours=1)
+        while current <= samples[i + 1][0]:
+            err = abs(_rel(current) - 180.0)
+            if err < best_err:
+                best_err = err
+                best_dt = current
+            current += timedelta(hours=1)
+        current = best_dt - timedelta(hours=1)
+        end2 = best_dt + timedelta(hours=1)
+        while current <= end2:
+            err = abs(_rel(current) - 180.0)
+            if err < best_err:
+                best_err = err
+                best_dt = current
+            current += timedelta(minutes=5)
+        events.append((best_dt, "opposition", "opposition"))
+
     # Remove duplicates
     seen = set()
     unique = []
@@ -1100,7 +1119,7 @@ def find_opposition_events(planet, start_dt, days=1460):
         if key not in seen:
             seen.add(key)
             unique.append(e)
-    
+
     return unique
 
 def outer_planet_event_annotation(today_dt, events):
