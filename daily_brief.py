@@ -1699,11 +1699,13 @@ def pattern_lines(now, today):
     pct = _break_base_pct(doy)
     # pressure state: trailing 3-day MSLP fall > 1.5 mb adds +0.40 logit
     # (measured beta on 948 events; small but real at the 7-day horizon)
+    pressure_fired = False
     pm = d.get("pressure_msl") or []
     if len(pm) == n and i_now >= 72:
         p3 = [x for x in pm[i_now - 72:i_now] if x is not None]
         p0 = [x for x in pm[max(0, i_now - 144):max(0, i_now - 72)] if x is not None]
         if p3 and p0 and (sum(p3) / len(p3) - sum(p0) / len(p0)) < -1.5:
+            pressure_fired = True
             z_state = math.log(max(pct, 0.5) / max(100.0 - pct, 0.5)) + 0.40
             pct = 100.0 / (1.0 + math.exp(-z_state))
     # season gate applies to the EVENT's day, not the issue day: a front landing
@@ -1795,6 +1797,10 @@ def pattern_lines(now, today):
             tail = " — " + ", ".join(words)
         if lead == 0:
             tail = " — breaking now" + tail
+    if first_strong is None and not firing and not pressure_fired:
+        # Every evidence channel silent (no strong/soft signature, no
+        # pressure fall): the number equals the pure seasonal coefficient.
+        tail = " (quiet pattern)"
     pct = max(1, min(97, round(pct)))
     line2 = f"- Break chance this week: {pct}%{tail}"
     return [line1, line2]
