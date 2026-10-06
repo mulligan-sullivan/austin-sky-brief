@@ -250,7 +250,7 @@ PECAN_WINDOWS = {"Cultivars": (30, 72), "Native trees": (40, 80)}  # (ready days
 PECAN_FREEZE_TEMP = 28       # daily low at/below this = killing freeze
 PECAN_FREEZE_START_DOY = 275  # Oct 2 - earliest a freeze can cut/announce
 # 2016-2025 mean cumulative GDD50 by week; used ONLY to pace the countdown
-# ("likely ready in 3 weeks" etc.) before the crossing happens.
+# ("likely ready in three weeks" etc.) before the crossing happens.
 PECAN_GDD_NORMAL_WEEKLY = [12, 42, 75, 103, 134, 190, 231, 287, 357, 443, 542, 641, 764, 887, 1010, 1148, 1287, 1452, 1622, 1802, 1997, 2201, 2408, 2635, 2875, 3113, 3356, 3601, 3854, 4111, 4364, 4621, 4886, 5147, 5395, 5633, 5848, 6072, 6292, 6483, 6675, 6839, 6992, 7104, 7222, 7309, 7396, 7460, 7517, 7564, 7609, 7662, 7698]
 
 # ==================== SPACE EXPLORATION ====================
