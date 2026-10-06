@@ -1683,7 +1683,18 @@ def pattern_lines(now, today):
     s_now = sum(win) / len(win)
     doy = today.timetuple().tm_yday
     cur_season = _season_of(s_now, doy)
-    line1 = f"- Season (past 24h): {cur_season} {round(_season_strength(s_now, cur_season))}%"
+    strength = round(_season_strength(s_now, cur_season))
+    side = ""
+    if cur_season in ("Spring", "Fall"):
+        # Side of the transition band: >=95% of dead center (within 0.75 K
+        # of 322 K) is "true spring/fall"; otherwise name the nearer side.
+        if strength >= 95:
+            side = f" (true {cur_season.lower()})"
+        elif s_now > SEASON_MID:
+            side = " (summer side)"
+        elif s_now < SEASON_MID:
+            side = " (winter side)"
+    line1 = f"- Season (past 24h): {cur_season} {strength}%{side}"
 
     pct = _break_base_pct(doy)
     # pressure state: trailing 3-day MSLP fall > 1.5 mb adds +0.40 logit
