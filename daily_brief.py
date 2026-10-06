@@ -331,19 +331,20 @@ def space_exploration_lines(today):
         for (y, mo, d, body, idx, total) in data["assists"]:
             du = (date(y, mo, d) - today).days
             if du == 3:
-                countdown = "in 3 days"
+                countdown = "in three days"
             elif du == 2:
-                countdown = "in 2 days"
+                countdown = "in two days"
             elif du == 1:
                 countdown = "tomorrow"
             elif du == 0:
-                countdown = "today"
+                countdown = ""  # bare event, house style
             elif du == -1:
                 countdown = "yesterday"
             else:
                 continue
             suffix = f" (assist {idx} of {total})" if idx is not None else ""
-            lines.append(f"- {mission}: {body} flyby {countdown}{suffix}")
+            cd = f" {countdown}" if countdown else ""
+            lines.append(f"- {mission}: {body} flyby{cd}{suffix}")
             break
         else:
             # Arrivals: the full Venus-style ladder, then silence forever.
@@ -358,22 +359,23 @@ def space_exploration_lines(today):
             if month_before == today:
                 countdown = "a month from today"
             elif du == 21:
-                countdown = "3 weeks away"
+                countdown = "three weeks away"
             elif du == 14:
-                countdown = "2 weeks away"
+                countdown = "two weeks away"
             elif 2 <= du <= 7:
                 countdown = "this week"
             elif du == 1:
                 countdown = "tomorrow"
             elif du == 0:
-                countdown = "today"
+                countdown = ""  # bare event, house style
             elif du == -1:
                 countdown = "yesterday"
             elif -7 <= du <= -2:
                 countdown = "in the past week"
             else:
                 continue
-            lines.append(f"- {mission}: {data['arrival_label']} {countdown}")
+            cd = f" {countdown}" if countdown else ""
+            lines.append(f"- {mission}: {data['arrival_label']}{cd}")
     return lines
 
 # ==================== SKYFIELD SETUP ====================
@@ -399,6 +401,177 @@ INNER_PLANETS = {
     'Mercury': eph['mercury'],
     'Venus': eph['venus'],
 }
+
+# ==================== CONJUNCTIONS ====================
+# Visible conjunctions, fully automatic from the ephemeris - no dates
+# hardcoded. Moon x planet pairings announce at 5 degrees separation or
+# tighter, planet x planet at 3 degrees or tighter. A pairing must also be
+# VISIBLE at the moment of closest approach: Sun at or below -6 deg (at
+# least nautical twilight) and both bodies at least 15 deg up. Moon
+# pairings require the Moon itself to be there: illumination >= 2% (a
+# findable sliver; a new moon doesn't count even sitting on a planet).
+# v1 simplification, accepted by design: visibility is judged at the
+# instant of minimum separation, not "still close at dusk".
+CONJUNCTION_PLANETS = {**INNER_PLANETS, **PLANETS}
+CONJUNCTION_MOON_DEG = 5.0
+CONJUNCTION_PLANET_DEG = 3.0
+CONJUNCTION_MIN_ALT = 15.0
+CONJUNCTION_MAX_SUN = -6.0
+CONJUNCTION_MIN_ILLUM = 2.0
+
+def _pair_separation(body_a, body_b, dt):
+    t = ts.from_datetime(dt)
+    a = observer.at(t).observe(body_a).apparent()
+    b = observer.at(t).observe(body_b).apparent()
+    return a.separation_from(b).degrees
+
+def _next_separation_minimum(body_a, body_b, start_dt, horizon_days, coarse_hours):
+    """Next local minimum of angular separation at/after start_dt:
+    (min_dt, min_sep) or None. Coarse scan for the bin, then hourly,
+    then 5-minute refinement around the coarse minimum."""
+    step = timedelta(hours=coarse_hours)
+    end = start_dt + timedelta(days=horizon_days)
+    t_prev = start_dt
+    sep_prev = _pair_separation(body_a, body_b, t_prev)
+    t = t_prev + step
+    diff_prev = None
+    cand = None
+    while t <= end:
+        sep = _pair_separation(body_a, body_b, t)
+        diff = sep - sep_prev
+        if diff_prev is not None and diff_prev < 0 <= diff:
+            cand = t_prev
+            break
+        diff_prev = diff
+        sep_prev = sep
+        t_prev = t
+        t += step
+    if cand is None:
+        return None
+    best_dt, best_sep = cand, _pair_separation(body_a, body_b, cand)
+    t = cand - step
+    while t <= cand + step:
+        s = _pair_separation(body_a, body_b, t)
+        if s < best_sep:
+            best_sep, best_dt = s, t
+        t += timedelta(hours=1)
+    t = best_dt - timedelta(hours=1)
+    while t <= best_dt + timedelta(hours=1):
+        s = _pair_separation(body_a, body_b, t)
+        if s < best_sep:
+            best_sep, best_dt = s, t
+        t += timedelta(minutes=5)
+    return best_dt, best_sep
+
+def _conjunction_event_dates(body_a, body_b, min_dt, threshold):
+    """Every date the pairing stays within threshold going forward from
+    the minimum's own date - a broad minimum can span two days, and both
+    days announce."""
+    dates = [min_dt.date()]
+    d = 1
+    while d <= 3:
+        t = min_dt + timedelta(days=d)
+        if _pair_separation(body_a, body_b, t) <= threshold:
+            dates.append(t.date())
+            d += 1
+        else:
+            break
+    return dates
+
+def _conjunction_visible(body_a, body_b, dt):
+    if sun_elevation_degrees(dt) > CONJUNCTION_MAX_SUN:
+        return False
+    alt_a, _ = planet_position(body_a, dt)
+    alt_b, _ = planet_position(body_b, dt)
+    return alt_a >= CONJUNCTION_MIN_ALT and alt_b >= CONJUNCTION_MIN_ALT
+
+def _moon_illumination_pct(dt):
+    t = ts.from_datetime(dt)
+    pa = almanac.moon_phase(eph, t).degrees
+    return (1 - math.cos(math.radians(pa))) / 2 * 100
+
+def moon_conjunction_annotation(now, today):
+    """Tail for the Moon's illumination line: the next visible conjunction
+    with a planet. Ladder: this week (7) / in two days (2) / tomorrow (1) /
+    bare on the day. No after-fact lines; if two planets qualify, the
+    nearer countdown wins."""
+    best = None  # (du, min_sep, name, label)
+    for name, planet in CONJUNCTION_PLANETS.items():
+        found = _next_separation_minimum(moon, planet, now - timedelta(days=1), 45, 3)
+        if not found:
+            continue
+        min_dt, min_sep = found
+        if min_sep > CONJUNCTION_MOON_DEG:
+            continue
+        if _moon_illumination_pct(min_dt) < CONJUNCTION_MIN_ILLUM:
+            continue  # new moon: not there, doesn't count
+        if not _conjunction_visible(moon, planet, min_dt):
+            continue
+        for d in _conjunction_event_dates(moon, planet, min_dt, CONJUNCTION_MOON_DEG):
+            du = (d - today).days
+            if du == 7:
+                label = "this week"
+            elif du == 2:
+                label = "in two days"
+            elif du == 1:
+                label = "tomorrow"
+            elif du == 0:
+                label = ""
+            else:
+                continue
+            if best is None or (du, min_sep) < (best[0], best[1]):
+                best = (du, min_sep, name, label)
+    if best is None:
+        return ""
+    du, min_sep, name, label = best
+    txt = f" — visible conjunction with {name}"
+    if label:
+        txt += f" {label}"
+    return f"{txt} ({min_sep:.1f}° apart)"
+
+def visible_conjunction_lines(now, today):
+    """Lines for the Visible conjunctions subsection: planet x planet
+    only (Moon pairings live on the Moon line). Ladder: two weeks away
+    (14) / next week (10-8) / this week (7-4) / in three days / in two
+    days / tomorrow / bare on the day / yesterday, then silence."""
+    names = list(CONJUNCTION_PLANETS)
+    out_lines = []
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            b1, b2 = CONJUNCTION_PLANETS[names[i]], CONJUNCTION_PLANETS[names[j]]
+            found = _next_separation_minimum(b1, b2, now - timedelta(days=1), 400, 24)
+            if not found:
+                continue
+            min_dt, min_sep = found
+            if min_sep > CONJUNCTION_PLANET_DEG:
+                continue
+            if not _conjunction_visible(b1, b2, min_dt):
+                continue
+            for d in _conjunction_event_dates(b1, b2, min_dt, CONJUNCTION_PLANET_DEG):
+                du = (d - today).days
+                if du == 14:
+                    label = "two weeks away"
+                elif 8 <= du <= 10:
+                    label = "next week"
+                elif 4 <= du <= 7:
+                    label = "this week"
+                elif du == 3:
+                    label = "in three days"
+                elif du == 2:
+                    label = "in two days"
+                elif du == 1:
+                    label = "tomorrow"
+                elif du == 0:
+                    label = ""
+                elif du == -1:
+                    label = "yesterday"
+                else:
+                    continue
+                txt = f"- {names[i]} & {names[j]}:"
+                txt += f" {label}" if label else " conjunction"
+                out_lines.append((d, f"{txt} ({min_sep:.1f}° apart)"))
+    out_lines.sort(key=lambda x: x[0])
+    return [l for _, l in out_lines]
 
 # ==================== HELPERS ====================
 
@@ -839,9 +1012,9 @@ def season_event_notice(events, today):
         if month_before == today:
             cands.append((5, 32, f"{name} a month from today"))
         elif du == 21:
-            cands.append((4, 21, f"{name} 3 weeks away"))
+            cands.append((4, 21, f"{name} three weeks away"))
         elif du == 14:
-            cands.append((3, 14, f"{name} 2 weeks away"))
+            cands.append((3, 14, f"{name} two weeks away"))
         elif 2 <= du <= 7:
             cands.append((2, du, f"{name} this week"))
         elif du == 1:
@@ -1357,9 +1530,9 @@ def inner_planet_event_annotation(name, today_dt, events, current_status=""):
             elif du == 1:
                 annotations.append((1, f"{detail} tomorrow"))
             elif du == 2:
-                annotations.append((2, f"{detail} in 2 days"))
+                annotations.append((2, f"{detail} in two days"))
             elif du == 3:
-                annotations.append((3, f"{detail} in 3 days"))
+                annotations.append((3, f"{detail} in three days"))
             
             if ds == 1:
                 annotations.append((ds, f"end of {detail} yesterday"))
@@ -1543,9 +1716,9 @@ def pecan_lines(now, today):
         if cross is None:
             days_out = _pecan_days_out(tally, threshold, today)
             if 15 <= days_out <= 21:
-                lines.append(f"- {label}: likely ready in 3 weeks")
+                lines.append(f"- {label}: likely ready in three weeks")
             elif 8 <= days_out <= 14:
-                lines.append(f"- {label}: likely ready in 2 weeks")
+                lines.append(f"- {label}: likely ready in two weeks")
             elif 1 <= days_out <= 7:
                 lines.append(f"- {label}: likely ready next week")
             continue
@@ -1988,7 +2161,7 @@ def main():
         report += f"{season_line}\n\n"
 
     report += f"### Moon\n\n"
-    report += f"{moon_info}\n"
+    report += f"{moon_info}{moon_conjunction_annotation(now, today)}\n"
     report += f"{moon_pos_line}\n\n"
     report += f"### Planets\n\n"
 
@@ -2029,6 +2202,12 @@ def main():
         anno = inner_planet_event_annotation(name, now, data['events'], data['status'])
         report += f"- {name}: {data['status']}{anno}\n"
     report += "\n"
+
+    # Visible conjunctions subsection - planet x planet pairings only
+    vis_conj = visible_conjunction_lines(now, today)
+    if vis_conj:
+        report += "**Visible conjunctions**\n\n"
+        report += "\n".join(vis_conj) + "\n\n"
 
     # Space exploration subsection - en-route flybys and terminal arrivals
     space_lines = space_exploration_lines(today)
