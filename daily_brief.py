@@ -2030,6 +2030,79 @@ def pattern_lines(now, today):
     line2 = f"- Break chance this week: {pct}%{tail}"
     return [line1, line2]
 
+def _md_inline(s):
+    """Convert paired **bold** spans to <strong>."""
+    parts = s.split("**")
+    return "".join(f"<strong>{p}</strong>" if i % 2 else p for i, p in enumerate(parts))
+
+def write_html_report(report, chart_path=None, path="index.html"):
+    """Render the report to a self-contained, auto-refreshing HTML page,
+    in the register of the OSINT feed page (monospace, dark, simple)."""
+    body = []
+    in_list = False
+    for raw in report.split("\n"):
+        line = raw.rstrip()
+        if not line.strip():
+            if in_list:
+                body.append("</ul>")
+                in_list = False
+            continue
+        if line.startswith("## "):
+            if in_list:
+                body.append("</ul>")
+                in_list = False
+            body.append(f"<h1>{_md_inline(line[3:])}</h1>")
+        elif line.startswith("### "):
+            if in_list:
+                body.append("</ul>")
+                in_list = False
+            body.append(f"<h2>{_md_inline(line[4:])}</h2>")
+        elif line.startswith("**") and line.endswith("**") and len(line) > 4:
+            if in_list:
+                body.append("</ul>")
+                in_list = False
+            body.append(f"<h3>{_md_inline(line.strip('*'))}</h3>")
+        elif line.startswith("- "):
+            if not in_list:
+                body.append("<ul>")
+                in_list = True
+            body.append(f"<li>{_md_inline(line[2:])}</li>")
+        else:
+            if in_list:
+                body.append("</ul>")
+                in_list = False
+            body.append(f"<p>{_md_inline(line)}</p>")
+    if in_list:
+        body.append("</ul>")
+
+    img_html = ""
+    if chart_path:
+        try:
+            import base64
+            with open(chart_path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("ascii")
+            img_html = f'<h2>Twilight at 6:15 AM</h2><img src="data:image/png;base64,{b64}" style="max-width:100%">'
+        except Exception as e:
+            print(f"HTML chart embed failed: {e}")
+
+    page = "\n".join([
+        "<!DOCTYPE html><html><head>",
+        '<meta charset="UTF-8">',
+        "<title>Austin Sky + Weather Brief</title>",
+        "<style>body{font-family:monospace;max-width:900px;margin:20px auto;padding:10px;background:#111;color:#eee}"
+        "h1{color:#0f0;font-size:1.4em}h2{color:#ff0;border-bottom:1px solid #444;padding-bottom:4px;font-size:1.15em}"
+        "h3{color:#0ff;font-size:1em;margin-bottom:4px}p{margin:6px 0}ul{margin:4px 0 10px 18px;padding:0}"
+        "li{margin:3px 0}a{color:#0f0}</style>",
+        "</head><body>",
+        f"<!-- Generated {datetime.now(TZ).strftime('%Y-%m-%d %H:%M %Z')} -->",
+        *body,
+        img_html,
+        "</body></html>",
+    ])
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(page)
+    print(f"Wrote HTML page to {path}")
+
 # ==================== MAIN ====================
 
 def main():
@@ -2303,7 +2376,13 @@ def main():
     report += f"Sources: Skyfield (JPL DE421 ephemeris), Open-Meteo"
 
     print(report)
-    
+
+    # Write the self-contained HTML page (GitHub Pages serves index.html)
+    try:
+        write_html_report(report, chart_path if chart_ready else None)
+    except Exception as e:
+        print(f"HTML report write failed: {e}")
+
     # Send report in two halves, second half FIRST. In ntfy, the newest
     # message sits on top, so the stack reads: image on top, then the report
     # beginning, then Weather/Wildflowers below.
