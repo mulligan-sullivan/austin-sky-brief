@@ -1827,15 +1827,38 @@ def pattern_lines(now, today):
     in 24h -- CONFIRMED by the forecast's own post-event air differing >=8K
     theta-e from pre-event air (unguarded rain/wind hits downgrade to soft).
     Shifts are season-stratified, stacked across firing days, capped."""
-    url = ("https://api.open-meteo.com/v1/forecast?latitude=30.2672&longitude=-97.7431"
-           "&hourly=temperature_2m,dewpoint_2m,wind_direction_10m,wind_speed_10m,precipitation,pressure_msl"
-           "&past_days=4&forecast_days=7&temperature_unit=fahrenheit&windspeed_unit=mph"
-           "&precipitation_unit=inch&timezone=America%2FChicago")
-    try:
-        d = requests.get(url, timeout=30).json()["hourly"]
-    except Exception as e:
-        print(f"Pattern fetch failed: {e}")
-        return []
+    # Split the six variables across two calls: each request is roughly
+    # half the server-side work, and each gets its own retry loop, so a
+    # slow answer costs one small piece instead of the whole section.
+    base = ("https://api.open-meteo.com/v1/forecast?latitude=30.2672&longitude=-97.7431"
+            "&past_days=4&forecast_days=7&temperature_unit=fahrenheit&windspeed_unit=mph"
+            "&precipitation_unit=inch&timezone=America%2FChicago")
+    groups = ["temperature_2m,dewpoint_2m,pressure_msl",
+              "wind_direction_10m,wind_speed_10m,precipitation"]
+    chunks = []
+    for g in groups:
+        url = base + "&hourly=" + g
+        d = None
+        for attempt in range(3):
+            try:
+                r = requests.get(url, timeout=60)
+                r.raise_for_status()
+                d = r.json()["hourly"]
+                break
+            except Exception as e:
+                print(f"Pattern fetch ({g.split(',')[0]}) attempt {attempt + 1} failed: {e}")
+                if attempt < 2:
+                    time.sleep(5)
+        if d is None:
+            return ["- Season (past 24h): data unavailable",
+                    "- Break chance this week: data unavailable"]
+        chunks.append(d)
+    d = dict(chunks[0])
+    d.update(chunks[1])
+    if chunks[1]["time"] != chunks[0]["time"]:
+        print("Pattern split-call time axis mismatch")
+        return ["- Season (past 24h): data unavailable",
+                "- Break chance this week: data unavailable"]
     times = d["time"]
     T = list(d["temperature_2m"])
     Td = list(d["dewpoint_2m"])
@@ -1843,7 +1866,10 @@ def pattern_lines(now, today):
     ws = list(d["wind_speed_10m"])
     pr = list(d.get("precipitation") or [0.0] * len(times))
     if any(len(x) != len(times) for x in (T, Td, wd, ws)):
-        return []
+        print(f"Pattern length mismatch: times={len(times)} "
+              f"T={len(T)} Td={len(Td)} wd={len(wd)} ws={len(ws)}")
+        return ["- Season (past 24h): data unavailable",
+                "- Break chance this week: data unavailable"]
     tes = [(_theta_e_k(a, b) if (a is not None and b is not None) else None) for a, b in zip(T, Td)]
     pr = [x if x is not None else 0.0 for x in pr]
     n = len(times)
@@ -1852,7 +1878,10 @@ def pattern_lines(now, today):
 
     win = [t for t in tes[max(0, i_now - 24):i_now] if t is not None]
     if not win:
-        return []
+        print(f"Pattern window empty: i_now={i_now} n={n} "
+              f"null_temps={sum(1 for x in T if x is None)}")
+        return ["- Season (past 24h): data unavailable",
+                "- Break chance this week: data unavailable"]
     s_now = sum(win) / len(win)
     doy = today.timetuple().tm_yday
     cur_season = _season_of(s_now, doy)
