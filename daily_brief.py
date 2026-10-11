@@ -2012,9 +2012,15 @@ def pattern_lines(now, today):
                     if z_post == "band":
                         words.append(f"toward {band_name}")
                     elif z_pre == "band" and z_post == "summer":
-                        words.append("back toward summer")
+                        # "back toward" = retreating to the regime the
+                        # season already left: valid only in the fall
+                        # half. In spring, band -> summer is forward.
+                        words.append("back toward summer" if doy >= 180 else "toward summer")
                     elif z_pre == "band" and z_post == "winter":
-                        words.append("back toward winter")
+                        # Mirror: retreat to winter is spring-only. In
+                        # fall, band -> winter is the season's forward
+                        # direction.
+                        words.append("back toward winter" if doy < 180 else "toward winter")
                     elif z_post == "summer":
                         words.append("toward summer")
                     elif z_post == "winter":
