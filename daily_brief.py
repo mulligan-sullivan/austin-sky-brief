@@ -1173,8 +1173,13 @@ def find_inner_planet_events(planet, start_dt, days=730):
                 # West of Sun = morning star
                 events.append((best_dt, "morning_star_max", "morning star, max elongation"))
         
-        # Local minimum = conjunction
-        elif curr_elong < prev_elong and curr_elong < next_elong and curr_elong < 5:
+        # Local minimum = conjunction. Threshold must clear the widest
+        # possible pass: Venus can pass up to ~8.7 deg from the Sun at
+        # inferior conjunction when the geometry misses the node (Oct 2026
+        # passed 6.6 deg south - a 5-deg filter deleted it from the brief
+        # entirely, no ladder, no conjunction status, just a silent
+        # evening-star-to-morning-star flip).
+        elif curr_elong < prev_elong and curr_elong < next_elong and curr_elong < 9:
             refine_start = samples[i-1][0]
             refine_end = samples[i+1][0]
             best_dt, best_elong = _refine_extremum(planet, refine_start, refine_end, find_max=False)
