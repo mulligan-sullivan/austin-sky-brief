@@ -65,12 +65,15 @@ THERMAL_EVENTS_CAL = [
 # Freeze calendar, computed 2026-10-28 from the Open-Meteo archive
 # (2016-2025, ten Oct-Apr seasons, first/last daily low <= 32F; circular
 # mean across seasons - the dates straddle New Year's, so a plain doy
-# average wraps). Note: archive model lows run warm vs the airport
-# station, so observed freezes typically land a bit earlier; the
-# medians (Nov 12 / Feb 16) are the robust center if this ever drifts.
+# average or median wraps). Spread: first freeze mean |dev| 17.6 days
+# (Dec 6 - Jan 18 observed, with a late-Jan tail), last freeze 16.2
+# (Jan 8 - Feb 26). Note: archive model lows run warm vs the airport
+# station, so observed freezes typically land a bit earlier.
+# Trailing number = mean absolute deviation in days (17.6 first / 16.2
+# last), shown with each warning.
 FREEZE_EVENTS = [
-    ((2, 12), "last freeze"),
-    ((12, 19), "first freeze"),
+    ((2, 12), "last freeze", 16),
+    ((12, 19), "first freeze", 18),
 ]
 
 # ==================== WILDFLOWERS ====================
@@ -1118,16 +1121,17 @@ def freeze_annotation(today_dt):
     spec: one week out, two days out, tomorrow, the day itself. No
     after-fact lines."""
     best = None
-    for (m, d), name in FREEZE_EVENTS:
+    for (m, d), name, dev in FREEZE_EVENTS:
+        var = f" (avg. ± {dev} days)"
         du = (date(today_dt.year, m, d) - today_dt.date()).days
         if du == 7:
-            cand = (du, f"{name} this week")
+            cand = (du, f"{name} this week{var}")
         elif du == 2:
-            cand = (du, f"{name} in two days")
+            cand = (du, f"{name} in two days{var}")
         elif du == 1:
-            cand = (du, f"{name} tomorrow")
+            cand = (du, f"{name} tomorrow{var}")
         elif du == 0:
-            cand = (du, name)
+            cand = (du, f"{name}{var}")
         else:
             continue
         if best is None or du < best[0]:
