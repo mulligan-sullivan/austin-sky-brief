@@ -62,6 +62,17 @@ THERMAL_EVENTS_CAL = [
     (10, 23, "autumn equinox"),
 ]
 
+# Freeze calendar, computed 2026-10-28 from the Open-Meteo archive
+# (2016-2025, ten Oct-Apr seasons, first/last daily low <= 32F; circular
+# mean across seasons - the dates straddle New Year's, so a plain doy
+# average wraps). Note: archive model lows run warm vs the airport
+# station, so observed freezes typically land a bit earlier; the
+# medians (Nov 12 / Feb 16) are the robust center if this ever drifts.
+FREEZE_EVENTS = [
+    ((2, 12), "last freeze"),
+    ((12, 19), "first freeze"),
+]
+
 # ==================== WILDFLOWERS ====================
 # Bloom-season event dates derived from 10-year average bloom curves
 # (2016-2025 iNaturalist research-grade observations, Austin; see
@@ -1101,6 +1112,27 @@ def thermal_event_annotation(doy, today_dt):
     
     best = min(annotations, key=lambda x: x[0])
     return f" — {best[1]}"
+
+def freeze_annotation(today_dt):
+    """Freeze-calendar warning for the thermal line. Sparse ladder, per
+    spec: one week out, two days out, tomorrow, the day itself. No
+    after-fact lines."""
+    best = None
+    for (m, d), name in FREEZE_EVENTS:
+        du = (date(today_dt.year, m, d) - today_dt.date()).days
+        if du == 7:
+            cand = (du, f"{name} this week")
+        elif du == 2:
+            cand = (du, f"{name} in two days")
+        elif du == 1:
+            cand = (du, f"{name} tomorrow")
+        elif du == 0:
+            cand = (du, name)
+        else:
+            continue
+        if best is None or du < best[0]:
+            best = cand
+    return f" — {best[1]}" if best else ""
 
 # ==================== INNER PLANET HELPERS ====================
 
@@ -2262,6 +2294,8 @@ def main():
     thermal_pct = thermal_solstice_pct(doy)
     thermal_trend = "cooling" if thermal_pct > 0 else "warming"
     thermal_anno = thermal_event_annotation(doy, now)
+    if not thermal_anno:
+        thermal_anno = freeze_annotation(now)
     thermal_line = f"- Avg. thermal solstice: {thermal_pct:+.0f}% ({thermal_trend}){thermal_anno}"
 
     # Dew point lines
