@@ -2296,7 +2296,11 @@ def main():
     # Thermal solstice
     doy = now.timetuple().tm_yday
     thermal_pct = thermal_solstice_pct(doy)
-    thermal_trend = "cooling" if thermal_pct > 0 else "warming"
+    # Trend = direction of travel, not sign: compare tomorrow's percentage
+    # against today's. (A sign-based rule mislabeled the Oct->Jan leg
+    # "warming" because the percentage is negative there while the air is
+    # still cooling toward the coldness solstice.)
+    thermal_trend = "warming" if thermal_solstice_pct(doy + 1) > thermal_pct else "cooling"
     thermal_anno = thermal_event_annotation(doy, now)
     if not thermal_anno:
         thermal_anno = freeze_annotation(now)
